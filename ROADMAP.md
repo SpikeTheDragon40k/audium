@@ -15,10 +15,8 @@ All builds run locally; GitHub hosts only the code and the Releases (see ARCHITE
 ## Resume here (written 2026-10-29, end of session)
 
 State:
-- Branch `main`. M0, M1 and M2 are committed locally; `scripts/check.sh` passes.
-- **GitHub (`origin/main`) still has the old pre-rebase history** (tip `3fe2956`, whose first commit has a Claude trailer). The local history was rewritten to remove it. Publish with
-  `git push --force-with-lease=main:3fe2956 origin main`
-  (the maintainer runs this; the agent may not force-push).
+- Branch `main`. M0, M1 and M2 are committed and pushed; `scripts/check.sh` passes.
+- `origin/main` matches local `main` (history rewritten to drop the Claude trailer; force-pushed by the maintainer on 2026-10-29).
 - M2 has not yet been tried on a real library by the maintainer.
 
 Before starting M3:
