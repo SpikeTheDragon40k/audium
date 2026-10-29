@@ -8,10 +8,6 @@ An offline-first desktop audiobook player for Linux (primary: Arch + KDE Plasma 
 
 > **Status:** early development. See [ROADMAP.md](ROADMAP.md) for progress and [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
 
-## AI-assisted development
-
-This software is developed with AI assistance. All code is tested, reviewed and built by a human maintainer before it is committed or released.
-
 ## Building (Linux)
 
 Dependencies (Arch):
@@ -24,6 +20,10 @@ sudo pacman -S --needed rustup cmake ninja extra-cmake-modules corrosion \
 ```
 
 Build instructions will be added once Milestone 0 is complete.
+
+## AI-assisted development
+
+This software is developed with AI assistance. All code is tested, reviewed and built by a human maintainer before it is committed or released.
 
 ## License
 
