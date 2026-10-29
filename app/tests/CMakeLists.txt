@@ -1,0 +1,5 @@
+add_executable(test_bridge test_bridge.cpp)
+target_link_libraries(test_bridge PRIVATE Qt::Test audium_ui audium_uiplugin)
+add_test(NAME test_bridge COMMAND test_bridge)
+set_tests_properties(test_bridge PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+target_compile_definitions(test_bridge PRIVATE AUDIUM_VERSION_STRING="${PROJECT_VERSION}")

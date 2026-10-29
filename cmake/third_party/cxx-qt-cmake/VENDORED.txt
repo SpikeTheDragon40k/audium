@@ -1,0 +1,2 @@
+Vendored from https://github.com/KDAB/cxx-qt-cmake tag 0.10.0 (commit 64e63f560737b3b7f85ef8267c5918e4b8176d5a), unmodified.
+Matches the cxx-qt / cxx-qt-build 0.10.0 crates. Update both together.

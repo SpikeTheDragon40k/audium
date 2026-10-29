@@ -19,7 +19,21 @@ sudo pacman -S --needed rustup cmake ninja extra-cmake-modules corrosion \
   kstatusnotifieritem kiconthemes mpv ffmpeg
 ```
 
-Build instructions will be added once Milestone 0 is complete.
+Build and run:
+
+```sh
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build
+build/bin/audium
+```
+
+Run every check (formatting, clippy, Rust tests, the CMake build and Qt tests):
+
+```sh
+scripts/check.sh
+```
+
+Test audio is synthetic and generated locally with `scripts/make-fixtures.sh` (ffmpeg); no audio files are committed.
 
 ## AI-assisted development
 

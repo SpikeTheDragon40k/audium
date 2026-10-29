@@ -1,0 +1,36 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/audium-core",
+    "crates/audium-metadata",
+    "crates/audium-library",
+    "crates/audium-storage",
+    "crates/audium-bridge",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[workspace.dependencies]
+audium-core = { path = "crates/audium-core" }
+audium-metadata = { path = "crates/audium-metadata" }
+audium-library = { path = "crates/audium-library" }
+audium-storage = { path = "crates/audium-storage" }
+
+cxx = "1.0"
+cxx-qt = "0.10.0"
+cxx-qt-lib = "0.10.0"
+cxx-qt-build = "0.10.0"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+
+[profile.release]
+lto = "thin"

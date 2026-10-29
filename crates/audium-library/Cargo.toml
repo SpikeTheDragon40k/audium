@@ -1,0 +1,13 @@
+[package]
+name = "audium-library"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+audium-core.workspace = true
+audium-metadata.workspace = true
+
+[lints]
+workspace = true

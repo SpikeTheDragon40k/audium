@@ -1,0 +1,8 @@
+/target/
+/build/
+/build-*/
+/tests/fixtures/generated/
+*.swp
+.idea/
+.vscode/
+CMakeUserPresets.json

@@ -41,6 +41,13 @@ Dependency direction: `core` ← `metadata` ← `library`; `core` ← `storage`;
 
 CMake is the top level, with Cargo underneath via **Corrosion** and CXX-Qt's `cxx_qt_import_crate`. `audium-bridge` is the only `staticlib`. The other crates are plain `rlib`s, so `cargo test` works with no Qt installed. ECM supplies KDE install dirs, compiler settings and packaging helpers.
 
+Details settled in M0:
+- `cxx-qt-cmake` 0.10.0 (one CMake file) is vendored in `cmake/third_party/cxx-qt-cmake/` instead of being fetched at configure time. Builds work offline and the version is pinned to the crates.
+- **Deviation from the CLAUDE.md layout:** the bridge's Cargo package is named `audium_bridge` (underscore), while its directory stays `crates/audium-bridge/`. cxx-qt-build only exports generated headers when `CXX_QT_EXPORT_CRATE_<CARGO_PKG_NAME>` is set, and CMake sets that variable from the target name, which always uses underscores. A hyphenated package name therefore never exports anything.
+- The app's QML is a static QML module (`audium_ui`, URI `org.audium.app`). The executable and the Qt tests link the same module, so the tests load the real `Main.qml`.
+- The bridge's QML module URI is `org.audium.bridge`.
+- Localization uses `KLocalization::setupLocalizedContext` (KF6::I18nQml); `KLocalizedContext` is deprecated since KF 6.8.
+
 Rejected alternative: a Cargo-only build that compiles the C++ through `cxx-qt-build`. It loses the ECM tooling and the Craft packaging paths.
 
 Reproducibility: `rust-toolchain.toml` (1.99.1) and a committed `Cargo.lock`.
@@ -193,7 +200,7 @@ Windows dependencies come through **KDE Craft**, using its prebuilt binary cache
 
 ## 12. Risks
 
-- **R1:** CXX-Qt 0.10 vs Qt 6.12, and how ECM and Corrosion work together. Validated in M0. If it blocks, the fallbacks are, in order:
+- **R1:** CXX-Qt 0.10 vs Qt 6.12, and how ECM and Corrosion work together. **Resolved on Linux in M0** (CMake + Corrosion 0.6.1 + ECM 6.31 build; a QML singleton with properties and an invokable works from C++ and QML). Windows is still unverified. If it blocks, the fallbacks are, in order:
   1. CXX-Qt from git main;
   2. an older Qt pinned only in CI;
   3. a thin hand-written `cxx` + C++ QObject layer.

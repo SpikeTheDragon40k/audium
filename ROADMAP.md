@@ -8,9 +8,8 @@ All builds run locally; GitHub hosts only the code and the Releases (see ARCHITE
 
 ## Current status
 
-- **Done:** environment check; `ARCHITECTURE.md` and `ROADMAP.md` written and approved (2026-10-29).
-- **Next:** Milestone 0.
-- **Blocker before M0:** install `cmake ninja extra-cmake-modules corrosion mpv`.
+- **Done:** environment check and design docs (2026-10-29); **M0 on Linux** (2026-10-29).
+- **Next:** Milestone 1 (real playback).
 - **Remote:** private GitHub repo `SpikeTheDragon40k/audium`, used for code and Releases only (no GitHub Actions).
 
 ## M0 — Foundation
@@ -25,6 +24,27 @@ All builds run locally; GitHub hosts only the code and the Releases (see ARCHITE
 - `scripts/check.sh`, the local quality gate (replaces CLAUDE.md's Linux/Windows CI items).
 - `.gitignore` and a README skeleton.
 - Exit criteria: the app launches on Plasma Wayland, the bridge round-trips a value, and a Qt test covers it.
+
+### M0 status (2026-10-29)
+Done and verified locally with `scripts/check.sh` (all steps pass):
+- Cargo workspace (5 crates, edition 2024), `rust-toolchain.toml` 1.99.1, committed `Cargo.lock`.
+- CMake + ECM + Corrosion + vendored cxx-qt-cmake 0.10.0.
+- `AppInfo` QML singleton in Rust (`version`, `appId`, `echo()`), shown in a Kirigami window.
+- `app/tests/test_bridge.cpp`. It fails on *any* Qt/QML warning and checks:
+  - C++ → Rust round trip with Unicode text;
+  - Rust properties read from C++;
+  - QML access to the singleton;
+  - `Main.qml` loads (offscreen) with its page present.
+- `scripts/make-fixtures.sh` generates 7 layouts: m4b with chapters + cover, mp3 with ID3 CHAP, a folder book needing natural sort with sidecars, multi-disc CD1/CD2, a loose author folder, Unicode names without tags, and corrupt files. The chapters in the m4b and mp3 were checked with ffprobe.
+- `scripts/check.sh` is the local gate.
+
+Verified only partially:
+- The app launched on Plasma 6 Wayland and ran for 6 s without errors (stopped by timeout). Nobody has looked at the window yet.
+
+Open:
+- Windows build via Craft: not attempted (no Windows machine in this session).
+- The empty crates (`metadata`, `library`, `storage`) only contain doc comments until M2.
+- No app icon yet. The window uses the theme icon `audiobook`, falling back to `media-playback-start`.
 
 ## M1 — Real playback
 - `PlaybackController` (abstract), `MpvPlaybackBackend`.
