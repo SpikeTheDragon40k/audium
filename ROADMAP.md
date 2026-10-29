@@ -8,8 +8,8 @@ All builds run locally; GitHub hosts only the code and the Releases (see ARCHITE
 
 ## Current status
 
-- **Done:** environment check and design docs (2026-10-29); **M0 on Linux** (2026-10-29).
-- **Next:** Milestone 1 (real playback).
+- **Done:** environment check and design docs; M0 on Linux; **M1 on Linux** (all 2026-10-29).
+- **Next:** Milestone 2 (library).
 - **Remote:** private GitHub repo `SpikeTheDragon40k/audium`, used for code and Releases only (no GitHub Actions).
 
 ## M0 — Foundation
@@ -30,7 +30,7 @@ Done and verified locally with `scripts/check.sh` (all steps pass):
 - Cargo workspace (5 crates, edition 2024), `rust-toolchain.toml` 1.99.1, committed `Cargo.lock`.
 - CMake + ECM + Corrosion + vendored cxx-qt-cmake 0.10.0.
 - `AppInfo` QML singleton in Rust (`version`, `appId`, `echo()`), shown in a Kirigami window.
-- `app/tests/test_bridge.cpp`. It fails on *any* Qt/QML warning and checks:
+- `app/tests/test_bridge.cpp`. It checks the items below. *Correction (found in M1):* the "fail on any warning" check was installed only for `initTestCase()`, because `QTest::failOnWarning` lasts for one test function. It now runs before every test.
   - C++ → Rust round trip with Unicode text;
   - Rust properties read from C++;
   - QML access to the singleton;
@@ -55,6 +55,50 @@ Open:
   - playlist transitions;
   - seeking across tracks;
   - corrupt files.
+
+### M1 status (2026-10-29)
+Done and verified locally with `scripts/check.sh`. `test_playback` also passed 20 parallel runs (4 at a time) with no failures.
+- `PlaybackController` (`app/src/playback/playbackcontroller.{h,cpp}`):
+  - abstract, with no mpv types;
+  - owns the book-level logic: track offsets, chapters (explicit → embedded → one per track), skip, and previous-chapter with a 3 s grace period;
+  - rate is clamped to 0.5–3.0×, volume to 0–100.
+- `MpvPlaybackBackend`:
+  - `vo=null`, `af=scaletempo2`, `keep-open`, gapless playlist;
+  - the wakeup callback posts a queued call, and events are drained on the Qt thread;
+  - paths stay `QByteArray` and must be absolute;
+  - per-track errors are mapped through mpv playlist entry ids.
+- QML:
+  - `Main.qml` takes the controller as a required property;
+  - Library placeholder page with a temporary "Open Files…" action;
+  - a persistent Now Playing page (seek slider, transport, speed, volume, chapter list, error banner);
+  - a mini-player footer;
+  - shortcuts: Space, ←/→ (15 s / 30 s), `[` / `]` (±0.1×).
+- `app/tests/test_playback.cpp` (17 tests, real libmpv, `ao=null`):
+  - loading, play/pause, seeking within a track and across tracks;
+  - chapter navigation, including the grace period;
+  - resume at a start position;
+  - seamless multi-file transition;
+  - rate and volume clamping;
+  - end of book and replay;
+  - corrupt, missing and relative paths;
+  - a failed track being skipped;
+  - Unicode paths;
+  - stop and reload;
+  - skipping with unknown track durations.
+- `test_bridge` now also loads a book, opens Now Playing and plays, with no QML warnings allowed.
+- ctest generates fixtures itself (`make_fixtures` is a CTest fixture-setup step).
+
+Bugs found and fixed during M1:
+- After `stop()`, a late `idle-active` notification put the next `load()` into Error. Errors are now detected only from `END_FILE` of entries in the current playlist.
+- With unknown track durations ("Open Files"), skipping jumped to the last track. A track of unknown length is now open-ended for seeking, and a late-known length clamps the seek to 0.5 s before that track's end.
+
+Not verified:
+- **Audible output.** Tests use mpv's null audio output. Real playback through PipeWire on Plasma hasn't been heard yet. The app launches without warnings, but someone needs to listen to it.
+
+Open / known limitations:
+- With "Open Files", durations of tracks that haven't been loaded are unknown, so the total duration and the seek bar grow as tracks load. The library (M2) supplies durations up front.
+- Skip intervals are hard-coded (15 s back, 30 s forward) until settings exist (M3).
+- `MpvPlaybackBackend` sets `LC_NUMERIC=C` process-wide, which libmpv requires.
 
 ## M2 — Library
 - Spike to verify chapter and metadata readers (ARCHITECTURE §6).

@@ -103,6 +103,12 @@ It contains no mpv types.
 - events: `mpv_set_wakeup_callback` → `QMetaObject::invokeMethod(Qt::QueuedConnection)` → drain `mpv_wait_event(0)` on the Qt thread;
 - rate is clamped to 0.5–3.0.
 
+Implementation notes (M1):
+- **QML access:** `Main.qml` receives the controller as a required property (`player`), set from `main.cpp`. QML never constructs it.
+- **Error detection:** errors are detected only from `END_FILE` events for entries of the current playlist, matched by mpv playlist entry ids. The idle state isn't used, because its notifications can arrive after the next `load()` has started.
+- **Book-level logic in the base class:** `PlaybackController` handles chapter navigation and book-wide seeking, so another backend gets them for free. A track of unknown length is treated as open-ended. A seek whose target is computed before the length is known is clamped to just before that track's end when it loads.
+- **Logging:** mpv/ffmpeg warn-level logs go to `qCInfo` (category `audium.playback.mpv`); only error-level logs become warnings.
+
 **Policy lives in Rust.** The `PlaybackSession` bridge object owns:
 - which book and track to load;
 - debounced progress saves (every 5 s, and on pause, track change and quit);

@@ -9,6 +9,8 @@
 #include <KLocalizedQmlContext>
 #include <KLocalizedString>
 
+#include "playback/mpvplaybackbackend.h"
+
 Q_IMPORT_QML_PLUGIN(org_audium_appPlugin)
 
 int main(int argc, char *argv[])
@@ -33,8 +35,12 @@ int main(int argc, char *argv[])
         QQuickStyle::setStyle(QStringLiteral("org.kde.desktop"));
     }
 
+    // Created before the engine so it outlives every QML binding that uses it.
+    MpvPlaybackBackend player;
+
     QQmlApplicationEngine engine;
     KLocalization::setupLocalizedContext(&engine);
+    engine.setInitialProperties({{QStringLiteral("player"), QVariant::fromValue(static_cast<PlaybackController *>(&player))}});
     engine.loadFromModule("org.audium.app", "Main");
     if (engine.rootObjects().isEmpty()) {
         return 1;
