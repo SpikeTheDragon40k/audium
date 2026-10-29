@@ -8,9 +8,34 @@ All builds run locally; GitHub hosts only the code and the Releases (see ARCHITE
 
 ## Current status
 
-- **Done:** environment check and design docs; M0 on Linux; **M1 on Linux** (all 2026-10-29).
-- **Next:** Milestone 2 (library).
+- **Done:** environment check and design docs; M0 and M1 on Linux; **M2 on Linux** (all 2026-10-29).
+- **Next:** Milestone 3 (persistence).
 - **Remote:** private GitHub repo `SpikeTheDragon40k/audium`, used for code and Releases only (no GitHub Actions).
+
+## Resume here (written 2026-10-29, end of session)
+
+State:
+- Branch `main`. M0, M1 and M2 are committed locally; `scripts/check.sh` passes.
+- **GitHub (`origin/main`) still has the old pre-rebase history** (tip `3fe2956`, whose first commit has a Claude trailer). The local history was rewritten to remove it. Publish with
+  `git push --force-with-lease=main:3fe2956 origin main`
+  (the maintainer runs this; the agent may not force-push).
+- M2 has not yet been tried on a real library by the maintainer.
+
+Before starting M3:
+1. `scripts/check.sh` (rebuilds and runs every test; the first build takes a few minutes).
+2. Optionally run `build/bin/audium` on the real library and note grouping problems as M4 input.
+
+M3 plan (Persistence, MVP):
+1. **`PlaybackSession` (Rust, `crates/audium-bridge/src/playback_session.rs`):** loads a book by id: tracks and chapters from storage, resume position from `progress`, speed from `book_settings`. It drives the C++ `PlaybackController` through signal/slot wiring in `main.cpp` and replaces `app/src/libraryplayback.*`.
+2. **Progress saving:** `progress` (track_id + offset_ms, book_position_ms) is saved debounced every 5 s, and on pause, track change, seek and quit. Add storage functions plus tests for resume near track boundaries.
+3. **Sessions:** `sessions` rows (start/end, positions, listened_ms) per play stretch; feeds M5 stats.
+4. **End of book:** `endOfBook` → `progress.finished_at`; playing a finished book again starts from 0.
+5. **Per-book speed:** `book_settings.speed`, applied on load and saved on change.
+6. **Settings:** skip intervals in the `settings` table (replace the 15 s / 30 s constants in `Main.qml`).
+7. **Sleep timer:** a pure state machine in `audium-core` (minutes or end of chapter, 10 s fade, extend triggers as in ARCHITECTURE §5), ticked by a QTimer; fades through the controller's volume.
+8. **Library rows:** Continue Listening, Recently Added, Finished (new `BookFilter`s).
+9. **Shortcuts:** Ctrl+F placeholder (search itself is M4).
+10. **Writer thread:** decide whether progress writes need one (see ARCHITECTURE §9 deviation).
 
 ## M0 — Foundation
 - Cargo workspace with the 5 crates; `rust-toolchain.toml` (1.99.1).
@@ -115,6 +140,64 @@ Open / known limitations:
   - Unicode, long and non-UTF-8 paths;
   - missing and corrupt files;
   - reconciliation after a move or rename.
+
+### M2 status (2026-10-29)
+Done and verified locally with `scripts/check.sh` (all steps pass).
+
+Metadata spike:
+
+| Need | Library | Fixture result |
+|---|---|---|
+| Tags, duration, cover | lofty 0.25.5 | ✅ |
+| MP3 chapters (ID3 CHAP) | id3 1.17.2 | ✅ |
+| M4B chapters (Nero list and QuickTime track) | mp4ameta 0.13.0 | ✅ |
+| ffprobe | — | not needed for these formats, not used |
+
+What's in it:
+- **`audium-core`:** typed ids, `BookUid` (v4), natural sort, text cleanup and keys, track/book position conversion.
+- **`audium-metadata`:** probing (tags, duration, chapters); cover extraction with magic-byte checks; sidecars (`metadata.json` in Audiobookshelf style, `desc.txt`, `reader.txt`, `cover.*`/`folder.*`); folder and filename heuristics; the resolution chain with provenance for each field.
+- **`audium-storage`:**
+  - schema v1 covering every table in CLAUDE.md §9;
+  - backup with `VACUUM INTO` before each migration; a failed migration rolls back and leaves the file unchanged; a newer schema is refused;
+  - WAL and foreign keys;
+  - lossless path BLOBs;
+  - single-transaction apply; books with user data are never deleted.
+- **`audium-library`:** discovery, grouping heuristics, confidence and review reasons, partial hash, incremental scans with move detection, missing and unmounted handling, cancellation, parallel reading (up to 4 threads).
+- **Bridge:** `LibraryController`, `BookListModel` (a Rust `QAbstractListModel`), `BookDetails`, and the C++ `LibraryPlayback` glue.
+- **QML:**
+  - library grid/list with covers and an empty state;
+  - folder picker;
+  - scan progress with cancel;
+  - Book Details (cover, metadata, review reasons, chapters, files with missing markers, Play);
+  - Needs Review list;
+  - Settings (folders add/remove, rescan, re-read everything, about).
+
+Tests:
+- 82 Rust tests:
+  - grouping layouts: m4b/m4a, folder books, disc folders with and without tags, author folders split by album and by filename, numbered names, unreadable files;
+  - natural sort, the metadata chain level by level, sidecars (including malformed and oversized ones), migrations (backup, rollback, newer schema);
+  - reconciliation: move, rename, missing files, unmounted or emptied root;
+  - symlink loops, non-UTF-8 and >1000-byte paths, cancellation;
+  - a check that scanning leaves every file byte-identical.
+- `test_bridge` scans the fixtures through `LibraryController`, opens every page, and plays a library book; any Qt/QML warning fails it.
+
+Verified by hand:
+- The real app, with an isolated `XDG_DATA_HOME`/`XDG_CACHE_HOME` and a copy of the fixtures as its library, ran its startup scan (8 books, 1 to review, about 5 ms) without warnings. The database is at `$XDG_DATA_HOME/audium/audium.db`; covers are only in `$XDG_CACHE_HOME/audium/covers/`.
+
+Not verified:
+- **A real library.** Nobody has scanned your library or looked at the UI with real covers yet. Scan speed and grouping quality on 1000+ messy books are unknown until M7's synthetic test, or until you try it.
+
+Bugs found and fixed during M2:
+- Untagged files named `Chapitre 01 – début`, `Chapitre 02 – fin` were split into one book per file. The numbering check now looks after the names' common prefix.
+- `DisplayHint.AlwaysHide` actions caused Kirigami incubation warnings at startup.
+
+Open / known limitations:
+- **Needs Review:** only lists books and explains why. Merge, split, dismiss and editing come in M4, as does honoring `grouping_locked`.
+- **Sidecar edits:** a changed `desc.txt` or `metadata.json` in an otherwise unchanged folder is only re-read by "Re-read Everything".
+- **Untranslated status text:** scan status and error strings come from Rust and aren't translatable yet.
+- **Covers:** full-size cache copies, no thumbnails.
+- **Unmounted-root guard:** a library folder emptied on purpose is treated as "unmounted". Removing the folder in Settings is the way to clear it.
+- **Windows:** paths with unpaired UTF-16 surrogates lose those characters when handed to mpv (UTF-8). Windows is still unbuilt.
 
 ## M3 — Persistence (MVP)
 - `PlaybackSession`:

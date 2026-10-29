@@ -2,6 +2,7 @@
 #include <QIcon>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
+#include <QStandardPaths>
 #include <QtQml>
 #include <QtQml/QQmlExtensionPlugin>
 
@@ -9,6 +10,8 @@
 #include <KLocalizedQmlContext>
 #include <KLocalizedString>
 
+#include "audium_bridge/src/library_controller.cxxqt.h"
+#include "libraryplayback.h"
 #include "playback/mpvplaybackbackend.h"
 
 Q_IMPORT_QML_PLUGIN(org_audium_appPlugin)
@@ -18,7 +21,6 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
 
     KLocalizedString::setApplicationDomain("audium");
-    QCoreApplication::setOrganizationName(QStringLiteral("Audium"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("audium.org"));
 
     KAboutData about(QStringLiteral("audium"),
@@ -35,12 +37,21 @@ int main(int argc, char *argv[])
         QQuickStyle::setStyle(QStringLiteral("org.kde.desktop"));
     }
 
-    // Created before the engine so it outlives every QML binding that uses it.
+    // Created before the engine so they outlive every QML binding using them.
     MpvPlaybackBackend player;
+    LibraryPlayback libraryPlayback(&player);
+    LibraryController library;
+    // Failure is shown in the UI (library.errorString); playback still works.
+    library.open(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation),
+                 QStandardPaths::writableLocation(QStandardPaths::CacheLocation));
 
     QQmlApplicationEngine engine;
     KLocalization::setupLocalizedContext(&engine);
-    engine.setInitialProperties({{QStringLiteral("player"), QVariant::fromValue(static_cast<PlaybackController *>(&player))}});
+    engine.setInitialProperties({
+        {QStringLiteral("player"), QVariant::fromValue(static_cast<PlaybackController *>(&player))},
+        {QStringLiteral("library"), QVariant::fromValue(&library)},
+        {QStringLiteral("libraryPlayback"), QVariant::fromValue(&libraryPlayback)},
+    });
     engine.loadFromModule("org.audium.app", "Main");
     if (engine.rootObjects().isEmpty()) {
         return 1;

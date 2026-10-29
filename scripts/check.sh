@@ -15,11 +15,11 @@ cargo fmt --all --check
 step "cargo clippy"
 cargo clippy --workspace --all-targets --locked -- -D warnings
 
-step "cargo test"
-cargo test --workspace --locked
-
 step "fixtures"
 scripts/make-fixtures.sh >/dev/null
+
+step "cargo test"
+cargo test --workspace --locked
 
 step "cmake configure"
 cmake -S . -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo

@@ -35,7 +35,9 @@ Install the missing pieces with:
                                           audium-storage ──────────────────▶ audium-core
 ```
 
-Dependency direction: `core` ← `metadata` ← `library`; `core` ← `storage`; `bridge` → all of them. There are no cycles. `audium-core` does no I/O and has no Qt dependency.
+Dependency direction: `core` ← `metadata` ← `library` → `storage` → `core`; `bridge` → all of them. There are no cycles. `audium-core` does no I/O and has no Qt dependency.
+
+*(Changed in M2)* `audium-library` depends on `audium-storage`. It owns the scan orchestration (snapshot → discover → read → group → plan → apply), so the whole scan can be tested end to end without Qt. Storage still knows nothing about scanning: it defines plain write types (`ScanChanges`, `BookWrite`, `TrackWrite`) and applies them in one transaction.
 
 ## 3. Build *(decision)*
 
@@ -172,18 +174,21 @@ Indexes:
 2. A failed migration rolls back, the original file is left untouched, and the UI shows an error state.
 3. The database is never recreated silently.
 
-**Covers** *(decision)*: covers are thumbnailed to `<cache>/audium/covers/<book-id>-<hash>.webp` and loaded asynchronously by QML `Image`. Nothing is ever written into the library.
+**Covers** *(decision, changed in M2)*: the chosen cover (a sidecar `cover.*`/`folder.*` first, otherwise the image embedded in one of the first three files) is copied unchanged to `<cache>/audium/covers/<book-uid>-<content-hash>.<ext>`. QML `Image` scales it asynchronously (`sourceSize`). There is no thumbnail step, so no image library is needed; M7's performance pass decides whether thumbnails are worth it. Nothing is ever written into the library.
 
 ## 9. Threading *(decision)*
 
 | Thread | Work |
 |---|---|
 | Qt thread | UI, models, playback, integrations |
-| One DB writer thread | every write: scanner results, progress saves, imports. Requests arrive over a channel |
+| Scan thread | a scan's writes, with its own connection, in one transaction per library root |
+| Qt thread (writes) | small writes: adding and removing library folders |
 | Read-only connection | list-model queries (WAL allows reads during writes) |
 | Scanner pool | N = min(4, cores) `std::thread`s, cancelled through an `AtomicBool` |
 
 There's no async runtime. Rust worker threads never touch QObjects.
+
+*(Deviation in M2)* There is no dedicated writer thread yet. WAL plus `busy_timeout` (5 s) lets the scan thread and the rare UI-thread writes coexist, and each scan is a single transaction. M3 adds frequent progress writes; if those ever wait on a scan, they move to a writer thread.
 
 ## 10. Platform integration
 

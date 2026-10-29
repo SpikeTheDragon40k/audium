@@ -8,6 +8,8 @@ add_library(audium_ui STATIC
     src/playback/playbackcontroller.h
     src/playback/mpvplaybackbackend.cpp
     src/playback/mpvplaybackbackend.h
+    src/libraryplayback.cpp
+    src/libraryplayback.h
 )
 qt_add_qml_module(audium_ui
     URI org.audium.app
@@ -16,12 +18,17 @@ qt_add_qml_module(audium_ui
         qml/Main.qml
         qml/pages/LibraryPage.qml
         qml/pages/NowPlayingPage.qml
+        qml/pages/BookDetailsPage.qml
+        qml/pages/NeedsReviewPage.qml
+        qml/pages/SettingsPage.qml
         qml/components/MiniPlayer.qml
+        qml/components/BookCover.qml
         qml/components/TimeFormat.js
+        qml/components/ReviewReasons.js
 )
 target_include_directories(audium_ui PUBLIC src)
 # qmltyperegistrar includes registered headers by bare file name.
-target_include_directories(audium_ui PRIVATE src/playback)
+target_include_directories(audium_ui PRIVATE src/playback src)
 target_link_libraries(audium_ui PUBLIC
     Qt::Quick
     Qt::QuickControls2

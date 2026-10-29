@@ -1,0 +1,3 @@
+# Panicking on setup failures is fine in tests; library code must not.
+allow-expect-in-tests = true
+allow-unwrap-in-tests = true

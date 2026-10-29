@@ -10,9 +10,13 @@ crate-type = ["staticlib", "lib"]
 
 [dependencies]
 audium-core.workspace = true
+audium-library.workspace = true
+audium-storage.workspace = true
 cxx.workspace = true
 cxx-qt.workspace = true
 cxx-qt-lib.workspace = true
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std", "ansi"] }
 
 [build-dependencies]
 cxx-qt-build.workspace = true
