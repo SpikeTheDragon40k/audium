@@ -311,6 +311,20 @@ fn run_scan(
         Err(e) => return format!("Scan failed: {e}"),
     };
     let threads = std::thread::available_parallelism().map_or(2, |n| n.get().min(4));
+    // Grouping rules changed since the last scan: re-read everything once.
+    let rules = audium_storage::playback::setting(db.conn(), audium_library::RULES_VERSION_KEY)
+        .ok()
+        .flatten()
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(0);
+    let force = force || rules < audium_library::RULES_VERSION;
+    if force {
+        tracing::info!(
+            rules,
+            current = audium_library::RULES_VERSION,
+            "re-reading every folder"
+        );
+    }
     let opts = ScanOptions {
         cache_dir: cache_dir.to_owned(),
         threads,
@@ -351,6 +365,17 @@ fn run_scan(
                 return format!("Scan of {} failed: {e}", library.display_path);
             }
         }
+    }
+    // Only once every folder was actually re-read: an unmounted drive must be
+    // regrouped when it comes back.
+    if unavailable.is_empty()
+        && let Err(e) = audium_storage::playback::set_setting(
+            db.conn(),
+            audium_library::RULES_VERSION_KEY,
+            &audium_library::RULES_VERSION.to_string(),
+        )
+    {
+        tracing::error!(error = %e, "cannot save the rules version");
     }
     let mut status = match added {
         0 => "Library is up to date.".to_owned(),

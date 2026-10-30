@@ -26,7 +26,19 @@ pub enum BookFilter {
     All,
     /// In the "Needs review" queue and not dismissed.
     NeedsReview,
+    /// Started and not finished, most recently played first.
+    ContinueListening,
+    /// Newest additions first (at most [`RECENT_LIMIT`]).
+    RecentlyAdded,
+    /// Finished, most recently finished first.
+    Finished,
 }
+
+pub const RECENT_LIMIT: usize = 30;
+
+/// SQL (on the `p` progress alias) for "finished and not restarted since".
+pub(crate) const FINISHED_SQL: &str =
+    "(p.finished_at IS NOT NULL AND p.finished_at >= p.updated_at)";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BookSummary {
@@ -43,6 +55,10 @@ pub struct BookSummary {
     pub track_count: i64,
     pub review_reasons: Vec<String>,
     pub added_at: i64,
+    /// Saved book-wide position (0 when never played).
+    pub position_ms: i64,
+    pub finished: bool,
+    pub last_played_at: Option<i64>,
 }
 
 fn contributors_sql(role: &str) -> String {
@@ -59,25 +75,58 @@ fn reasons(json: Option<String>) -> Vec<String> {
 }
 
 pub fn list_books(conn: &Connection, filter: BookFilter) -> Result<Vec<BookSummary>> {
-    let filter_sql = match filter {
-        BookFilter::All => "",
-        BookFilter::NeedsReview => "WHERE rq.book_id IS NOT NULL AND rq.dismissed_at IS NULL",
+    let (where_sql, order_sql, limit) = match filter {
+        BookFilter::All => (String::new(), "b.title_sort, b.id", None),
+        BookFilter::NeedsReview => (
+            "WHERE rq.book_id IS NOT NULL AND rq.dismissed_at IS NULL".into(),
+            "b.title_sort, b.id",
+            None,
+        ),
+        BookFilter::ContinueListening => (
+            format!("WHERE p.book_id IS NOT NULL AND NOT {FINISHED_SQL}"),
+            "p.updated_at DESC, b.id",
+            None,
+        ),
+        BookFilter::RecentlyAdded => (
+            String::new(),
+            "b.added_at DESC, b.id DESC",
+            Some(RECENT_LIMIT),
+        ),
+        BookFilter::Finished => (
+            format!("WHERE {FINISHED_SQL}"),
+            "p.finished_at DESC, b.id",
+            None,
+        ),
     };
+    query_books(conn, &where_sql, order_sql, limit, &[])
+}
+
+fn query_books(
+    conn: &Connection,
+    where_sql: &str,
+    order_sql: &str,
+    limit: Option<usize>,
+    params: &[&dyn rusqlite::ToSql],
+) -> Result<Vec<BookSummary>> {
+    let limit_sql = limit.map(|n| format!("LIMIT {n}")).unwrap_or_default();
     let sql = format!(
         "SELECT b.id, b.title, {authors}, {narrators}, s.name, b.series_index, b.duration_ms, b.cover_path,
                 b.available, b.confidence,
                 (SELECT count(*) FROM tracks WHERE book_id = b.id),
-                CASE WHEN rq.dismissed_at IS NULL THEN rq.reasons END, b.added_at
+                CASE WHEN rq.dismissed_at IS NULL THEN rq.reasons END, b.added_at,
+                COALESCE(p.book_position_ms, 0), COALESCE({FINISHED_SQL}, 0), p.updated_at
          FROM books b
          LEFT JOIN series s ON s.id = b.series_id
          LEFT JOIN review_queue rq ON rq.book_id = b.id
-         {filter_sql}
-         ORDER BY b.title_sort, b.id",
+         LEFT JOIN progress p ON p.book_id = b.id
+         {where_sql}
+         ORDER BY {order_sql}
+         {limit_sql}",
         authors = contributors_sql("author"),
         narrators = contributors_sql("narrator"),
     );
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map([], |r| {
+    let rows = stmt.query_map(params, |r| {
         Ok(BookSummary {
             id: BookId(r.get(0)?),
             title: r.get(1)?,
@@ -92,9 +141,21 @@ pub fn list_books(conn: &Connection, filter: BookFilter) -> Result<Vec<BookSumma
             track_count: r.get(10)?,
             review_reasons: reasons(r.get(11)?),
             added_at: r.get(12)?,
+            position_ms: r.get(13)?,
+            finished: r.get(14)?,
+            last_played_at: r.get(15)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// One book's summary.
+pub fn book_summary(conn: &Connection, id: BookId) -> Result<Option<BookSummary>> {
+    Ok(
+        query_books(conn, "WHERE b.id = ?1", "b.id", None, &[&id.0])?
+            .into_iter()
+            .next(),
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

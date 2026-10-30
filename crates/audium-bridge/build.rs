@@ -7,6 +7,7 @@ fn main() {
             "src/library_controller.rs",
             "src/book_list_model.rs",
             "src/book_details.rs",
+            "src/playback_session.rs",
         ])
         .build();
 }

@@ -4,8 +4,11 @@
 //! deterministic and unit-testable.
 
 pub mod ids;
+pub mod listening;
 pub mod natural;
 pub mod position;
+pub mod progress;
+pub mod sleep;
 pub mod text;
 
 pub use ids::{BookId, BookUid, LibraryId, TrackId};

@@ -22,3 +22,4 @@ pub mod book_details;
 pub mod book_list_model;
 mod convert;
 pub mod library_controller;
+pub mod playback_session;

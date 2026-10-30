@@ -93,6 +93,9 @@ public:
 
     void setRate(double rate);
     void setVolume(int volume);
+    // Output multiplier on top of the user's volume (sleep-timer fade).
+    // Does not change `volume`.
+    void setVolumeFactor(double factor);
 
     State state() const { return m_state; }
     bool hasMedia() const { return !m_tracks.isEmpty(); }
@@ -142,7 +145,8 @@ protected:
     virtual void backendStop() = 0;
     virtual void backendSeek(int trackIndex, qint64 offsetMs) = 0;
     virtual void backendSetRate(double rate) = 0;
-    virtual void backendSetVolume(int volume) = 0;
+    // Effective output volume, 0..MaxVolume (user volume x fade factor).
+    virtual void backendSetVolume(double volume) = 0;
 
     // Called by the backend.
     void reportState(State state);
@@ -171,6 +175,7 @@ private:
     int m_chapterIndex = -1;
     double m_rate = 1.0;
     int m_volume = MaxVolume;
+    double m_volumeFactor = 1.0;
     QString m_errorString;
 };
 

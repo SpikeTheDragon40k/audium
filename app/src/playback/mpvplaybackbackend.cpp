@@ -22,7 +22,6 @@ enum ObservedProperty : quint64 {
     PropPlaylistPos,
     PropEofReached,
     PropSpeed,
-    PropVolume,
     PropChapterList,
 };
 
@@ -132,7 +131,6 @@ MpvPlaybackBackend::MpvPlaybackBackend(const QMap<QByteArray, QByteArray> &extra
     mpv_observe_property(m_mpv, PropPlaylistPos, "playlist-pos", MPV_FORMAT_INT64);
     mpv_observe_property(m_mpv, PropEofReached, "eof-reached", MPV_FORMAT_FLAG);
     mpv_observe_property(m_mpv, PropSpeed, "speed", MPV_FORMAT_DOUBLE);
-    mpv_observe_property(m_mpv, PropVolume, "volume", MPV_FORMAT_DOUBLE);
     mpv_observe_property(m_mpv, PropChapterList, "chapter-list", MPV_FORMAT_NODE);
     mpv_set_wakeup_callback(m_mpv, &MpvPlaybackBackend::wakeup, this);
 
@@ -256,11 +254,6 @@ void MpvPlaybackBackend::handlePropertyChange(const mpv_event &event)
             reportRate(*static_cast<double *>(prop->data));
         }
         break;
-    case PropVolume:
-        if (hasData) {
-            reportVolume(int(std::lround(*static_cast<double *>(prop->data))));
-        }
-        break;
     case PropChapterList:
         if (hasData && m_fileLoaded) {
             reportTrackChapters(m_playlistPos, parseChapterList(*static_cast<mpv_node *>(prop->data)));
@@ -276,6 +269,10 @@ void MpvPlaybackBackend::handleFileLoaded()
     int64_t pos = -1;
     mpv_get_property(m_mpv, "playlist-pos", MPV_FORMAT_INT64, &pos);
     m_playlistPos = int(pos);
+    if (m_awaitTrack >= 0 && m_playlistPos != m_awaitTrack) {
+        return; // a stray entry; mpv is switching to the requested one
+    }
+    m_awaitTrack = -1;
     m_fileLoaded = true;
     m_anyTrackLoaded = true;
 
@@ -311,9 +308,13 @@ void MpvPlaybackBackend::handleEndFile(const mpv_event &event)
     const QString message = tr("Could not play track %1: %2").arg(index + 1).arg(mpvError(end->error));
     qCWarning(lcMpv).noquote() << message;
     reportTrackFailed(index, message);
-    // A pending seek into a failed track can never be applied.
+    // A pending seek into a failed track can never be applied, and if the
+    // start track fails, whatever mpv plays next is the start.
     if (index == m_pendingSeekTrack) {
         m_pendingSeekTrack = -1;
+    }
+    if (index == m_awaitTrack) {
+        m_awaitTrack = -1;
     }
     // mpv moves on to the next entry by itself; after the last one it stops.
     if (index == trackCount() - 1) {
@@ -382,6 +383,11 @@ void MpvPlaybackBackend::backendLoad(const QList<TrackSource> &tracks, int start
     m_entryIndex.clear();
     setFlag("pause", true);
     command({"stop"});
+    // Tell mpv where to start before the playlist exists: otherwise it may
+    // begin with the first entry before `playlist-play-index` takes effect.
+    const QByteArray start = QByteArray::number(startTrack);
+    mpv_set_property_string(m_mpv, "playlist-start", start.constData());
+    m_awaitTrack = startTrack;
     for (const TrackSource &track : tracks) {
         command({"loadfile", track.path.constData(), "append"});
     }
@@ -394,8 +400,7 @@ void MpvPlaybackBackend::backendLoad(const QList<TrackSource> &tracks, int start
     }
     m_pendingSeekTrack = startOffsetMs > 0 ? startTrack : -1;
     m_pendingSeekMs = startOffsetMs;
-    const QByteArray index = QByteArray::number(startTrack);
-    command({"playlist-play-index", index.constData()});
+    command({"playlist-play-index", start.constData()});
 }
 
 void MpvPlaybackBackend::backendPlay()
@@ -419,6 +424,7 @@ void MpvPlaybackBackend::backendStop()
 {
     m_wantPlaying = false;
     m_pendingSeekTrack = -1;
+    m_awaitTrack = -1;
     m_entryIndex.clear();
     m_anyTrackLoaded = false;
     m_fileLoaded = false;
@@ -449,9 +455,11 @@ void MpvPlaybackBackend::backendSetRate(double rate)
     setDouble("speed", rate);
 }
 
-void MpvPlaybackBackend::backendSetVolume(int volume)
+void MpvPlaybackBackend::backendSetVolume(double volume)
 {
-    setDouble("volume", double(volume));
+    // mpv's volume is only ever set from here; it is not mirrored back, so a
+    // fade never shows up as a change of the user's volume.
+    setDouble("volume", volume);
 }
 
 bool MpvPlaybackBackend::command(std::initializer_list<const char *> args)

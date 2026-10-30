@@ -14,6 +14,10 @@ function(audium_add_test name)
     set_tests_properties(${name} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endfunction()
 
+find_package(Qt6 ${QT_MIN_VERSION} REQUIRED COMPONENTS Sql)
+
 audium_add_test(test_bridge)
 audium_add_test(test_playback)
-set_tests_properties(test_bridge test_playback PROPERTIES FIXTURES_REQUIRED audio_fixtures TIMEOUT 120)
+audium_add_test(test_session)
+target_link_libraries(test_session PRIVATE Qt::Sql)
+set_tests_properties(test_bridge test_playback test_session PROPERTIES FIXTURES_REQUIRED audio_fixtures TIMEOUT 180)

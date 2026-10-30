@@ -63,6 +63,16 @@ ff -i "$out/.tmp.m4a" -i "$meta" -i "$out/.cover.png" \
    -c:a copy -c:v png -disposition:v attached_pic \
    -f mp4 "$out/single-m4b/Ada Example - Fixture Book With Chapters.m4b"
 
+# 1b. One book split into numbered m4b parts sharing an album tag.
+d="$out/multi-part-m4b/Pia Parts/Split Book"
+mkdir -p "$d"
+for n in 1 2 3; do
+    tone 2 $((350 + n * 30)) "$out/.tmp-part.m4a" -c:a aac -b:a 32k
+    ff -i "$out/.tmp-part.m4a" -c copy -f mp4 \
+       -metadata album="Split Book" -metadata artist="Pia Parts" -metadata title="$n - Split Book: Part $n" \
+       -metadata track="$n/3" "$d/Split Book - 0$n - Part $n.m4b"
+done
+
 # 2. Single mp3 with ID3v2 CHAP frames.
 mkdir -p "$out/single-mp3-chapters"
 tone 6 523 "$out/.tmp.wav"

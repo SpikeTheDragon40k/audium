@@ -35,7 +35,8 @@ pub mod qobject {
         #[base = QAbstractListModel]
         #[qproperty(QString, database_path, cxx_name = "databasePath")]
         #[qproperty(i32, revision)]
-        /// 0 = all books, 1 = "Needs review".
+        /// 0 all books, 1 needs review, 2 continue listening, 3 recently
+        /// added, 4 finished.
         #[qproperty(i32, filter)]
         #[qproperty(i32, count, READ, NOTIFY)]
         #[qproperty(QString, error_string, cxx_name = "errorString", READ, NOTIFY)]
@@ -96,6 +97,9 @@ const ROLES: &[&str] = &[
     "trackCount",
     "needsReview",
     "reviewReasons",
+    "positionMs",
+    "progress",
+    "finished",
 ];
 
 impl cxx_qt::Initialize for qobject::BookListModel {
@@ -120,10 +124,12 @@ fn series_text(b: &BookSummary) -> Option<String> {
 impl qobject::BookListModel {
     fn reload(mut self: Pin<&mut Self>) {
         let path = String::from(&self.database_path);
-        let filter = if self.filter == 1 {
-            BookFilter::NeedsReview
-        } else {
-            BookFilter::All
+        let filter = match self.filter {
+            1 => BookFilter::NeedsReview,
+            2 => BookFilter::ContinueListening,
+            3 => BookFilter::RecentlyAdded,
+            4 => BookFilter::Finished,
+            _ => BookFilter::All,
         };
         let result = if path.is_empty() {
             Ok(Vec::new())
@@ -172,6 +178,15 @@ impl qobject::BookListModel {
             9 => QVariant::from(&b.track_count),
             10 => QVariant::from(&!b.review_reasons.is_empty()),
             11 => QVariant::from(&string_list(&b.review_reasons)),
+            12 => QVariant::from(&b.position_ms),
+            13 => QVariant::from(&if b.finished {
+                1.0
+            } else if b.duration_ms > 0 {
+                (b.position_ms as f64 / b.duration_ms as f64).clamp(0.0, 1.0)
+            } else {
+                0.0
+            }),
+            14 => QVariant::from(&b.finished),
             _ => QVariant::default(),
         }
     }

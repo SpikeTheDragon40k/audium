@@ -5,10 +5,12 @@
 
 mod migrate;
 pub mod paths;
+pub mod playback;
 pub mod read;
 #[cfg(test)]
 mod tests;
 pub mod write;
+pub mod writer;
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -16,6 +18,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use rusqlite::{Connection, OpenFlags};
 
 pub use migrate::{LATEST_VERSION, MIGRATIONS, Migration};
+pub use writer::Writer;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {

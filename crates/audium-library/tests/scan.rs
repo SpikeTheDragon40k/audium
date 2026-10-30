@@ -71,6 +71,16 @@ impl Env {
         self.try_scan(&AtomicBool::new(false)).expect("scan")
     }
 
+    fn scan_forced(&mut self) -> ScanSummary {
+        let lib = self.library();
+        let opts = ScanOptions {
+            cache_dir: self.cache.clone(),
+            threads: 4,
+            force: true,
+        };
+        scan_library(&mut self.db, &lib, &opts, &AtomicBool::new(false), &|_| {}).expect("scan")
+    }
+
     fn try_scan(&mut self, cancel: &AtomicBool) -> Result<ScanSummary, ScanError> {
         let lib = self.library();
         let opts = ScanOptions {
@@ -150,7 +160,13 @@ fn file_states(dir: &Path) -> BTreeMap<PathBuf, (u64, std::time::SystemTime, Vec
 
 #[test]
 fn scans_every_fixture_layout() {
-    let mut env = Env::new(&["single-m4b", "folder-book", "multi-disc", "loose-author"]);
+    let mut env = Env::new(&[
+        "single-m4b",
+        "folder-book",
+        "multi-disc",
+        "loose-author",
+        "multi-part-m4b",
+    ]);
     let before = file_states(&env.root);
     let summary = env.scan();
     assert!(summary.available);
@@ -165,6 +181,7 @@ fn scans_every_fixture_layout() {
             "First Story",
             "Fixture Book With Chapters",
             "Second Story",
+            "Split Book",
             "The Folder Book"
         ]
     );
@@ -229,6 +246,17 @@ fn scans_every_fixture_layout() {
             "Cy Author/Disc Book/CD2/02.mp3"
         ]
     );
+
+    // Numbered m4b parts sharing an album are one book, in track order.
+    assert_eq!(
+        env.track_names("Split Book"),
+        [
+            "Pia Parts/Split Book/Split Book - 01 - Part 1.m4b",
+            "Pia Parts/Split Book/Split Book - 02 - Part 2.m4b",
+            "Pia Parts/Split Book/Split Book - 03 - Part 3.m4b"
+        ]
+    );
+    assert_eq!(env.book("Split Book").authors, ["Pia Parts"]);
 
     // An author folder of loose files splits by album.
     assert_eq!(env.track_names("First Story").len(), 2);
@@ -464,4 +492,101 @@ fn cancelled_scan_changes_nothing() {
     assert!(matches!(env.try_scan(&cancel), Err(ScanError::Cancelled)));
     assert!(env.books().is_empty());
     assert!(env.library().last_scan_at.is_none());
+}
+
+#[test]
+fn forced_rescan_regroups_existing_books_and_keeps_progress() {
+    use audium_core::BookUid;
+    use audium_storage::write::{BookMetadata, BookTarget, BookWrite, ScanChanges, TrackWrite};
+
+    let mut env = Env::new(&["multi-part-m4b"]);
+    let dir = env.root.join("Pia Parts/Split Book");
+    let mut files: Vec<PathBuf> = fs::read_dir(&dir)
+        .expect("dir")
+        .flatten()
+        .map(|e| e.path())
+        .collect();
+    files.sort();
+    assert_eq!(files.len(), 3);
+
+    // The state older grouping rules left behind: one book per m4b part.
+    let lib = env.library().id;
+    let books = files
+        .iter()
+        .enumerate()
+        .map(|(i, path)| {
+            let meta = fs::metadata(path).expect("meta");
+            let mtime_ms = meta
+                .modified()
+                .expect("mtime")
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("epoch")
+                .as_millis() as i64;
+            BookWrite {
+                target: BookTarget::New(BookUid::from_random_bytes([i as u8 + 1; 16])),
+                metadata: BookMetadata {
+                    title: format!("Old {}", i + 1),
+                    ..BookMetadata::default()
+                },
+                cover_path: None,
+                confidence: 100,
+                review_reasons: vec![],
+                tracks: vec![TrackWrite {
+                    existing: None,
+                    path: path.clone(),
+                    size: meta.len() as i64,
+                    mtime_ms,
+                    partial_hash: None,
+                    duration_ms: 2000,
+                    disc: None,
+                    number: None,
+                    title: None,
+                }],
+                chapters: vec![],
+            }
+        })
+        .collect();
+    write::apply(
+        &mut env.db,
+        lib,
+        &ScanChanges {
+            books,
+            ..ScanChanges::default()
+        },
+    )
+    .expect("old state");
+    assert_eq!(env.books().len(), 3);
+    env.add_progress("Old 2");
+    let listened = env.book("Old 2").id;
+
+    // A normal scan sees unchanged folders and leaves the old grouping alone
+    // (which is why a rules change forces one full re-read).
+    let s = env.scan();
+    assert_eq!(s.files_read, 0);
+    assert_eq!(env.books().len(), 3);
+
+    let s = env.scan_forced();
+    assert_eq!(s.report.books_removed, 2);
+    let books = env.books();
+    assert_eq!(books.len(), 1, "{:?}", env.titles());
+    assert_eq!(books[0].title, "Split Book");
+    assert_eq!(
+        books[0].id, listened,
+        "the book with progress is the one kept"
+    );
+    assert_eq!(books[0].track_count, 3);
+    assert_eq!(books[0].position_ms, 1234, "progress kept");
+    let track_ok: bool = env
+        .db
+        .conn()
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM progress p JOIN tracks t ON t.id = p.track_id WHERE p.book_id = ?1 AND t.book_id = ?1)",
+            [listened.0],
+            |r| r.get(0),
+        )
+        .expect("q");
+    assert!(
+        track_ok,
+        "the progress still points at one of the book's tracks"
+    );
 }

@@ -12,7 +12,8 @@ Kirigami.ScrollablePage {
 
     required property var bookId
     required property LibraryController library
-    required property LibraryPlayback libraryPlayback
+    required property PlaybackSession session
+    required property int revision
 
     signal nowPlayingRequested()
 
@@ -22,7 +23,7 @@ Kirigami.ScrollablePage {
     BookDetails {
         id: details
         databasePath: page.library.databasePath
-        revision: page.library.revision
+        revision: page.revision
         bookId: page.bookId
     }
 
@@ -102,14 +103,35 @@ Kirigami.ScrollablePage {
                     color: Kirigami.Theme.disabledTextColor
                 }
 
+                QQC2.ProgressBar {
+                    Layout.fillWidth: true
+                    Layout.topMargin: Kirigami.Units.smallSpacing
+                    visible: details.positionMs > 0 && !details.finished
+                    from: 0
+                    to: Math.max(1, details.durationMs)
+                    value: details.positionMs
+                }
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    visible: details.finished || details.positionMs > 0
+                    text: details.finished
+                        ? i18nc("@info", "Finished")
+                        : i18nc("@info", "%1 left", TimeFormat.format(Math.max(0, details.durationMs - details.positionMs)))
+                    color: Kirigami.Theme.disabledTextColor
+                }
+
                 QQC2.Button {
                     Layout.topMargin: Kirigami.Units.largeSpacing
-                    icon.name: "media-playback-start"
-                    text: i18nc("@action:button", "Play")
+                    icon.name: details.finished ? "media-playlist-repeat" : "media-playback-start"
+                    text: details.finished ? i18nc("@action:button", "Play Again")
+                        : details.positionMs > 0 ? i18nc("@action:button", "Resume")
+                        : i18nc("@action:button", "Play")
                     enabled: details.valid && details.available
                     onClicked: {
-                        if (page.libraryPlayback.play(details)) {
+                        if (page.session.playBook(details.bookId)) {
                             page.nowPlayingRequested()
+                        } else {
+                            applicationWindow().showPassiveNotification(i18n("None of this book's files can be played."))
                         }
                     }
                 }

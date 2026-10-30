@@ -6,6 +6,7 @@
 #include <QVariantMap>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 
 namespace
@@ -192,8 +193,14 @@ void PlaybackController::setRate(double rate)
 void PlaybackController::setVolume(int volume)
 {
     volume = std::clamp(volume, 0, MaxVolume);
-    backendSetVolume(volume);
+    backendSetVolume(volume * m_volumeFactor);
     reportVolume(volume);
+}
+
+void PlaybackController::setVolumeFactor(double factor)
+{
+    m_volumeFactor = std::isfinite(factor) ? std::clamp(factor, 0.0, 1.0) : 1.0;
+    backendSetVolume(m_volume * m_volumeFactor);
 }
 
 qint64 PlaybackController::position() const

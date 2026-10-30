@@ -229,7 +229,8 @@ pub fn scan_library(
                 });
             }
 
-            let target = pick_target(&tracks, &book_of, &mut claimed);
+            let user_data = |b: BookId| snapshot.books.get(&b).is_some_and(|x| x.has_user_data);
+            let target = pick_target(&tracks, &book_of, &user_data, &mut claimed);
             let overrides = match &target {
                 Some(id) => snapshot
                     .books
@@ -393,9 +394,12 @@ fn read_all(
 
 /// The stored book most of these tracks belong to, unless another candidate
 /// of this scan already took it.
+/// Among those, a book with user data (progress, bookmarks...) wins, so that
+/// regrouping several books into one keeps the listening history attached.
 fn pick_target(
     tracks: &[TrackWrite],
     book_of: &HashMap<TrackId, BookId>,
+    has_user_data: &dyn Fn(BookId) -> bool,
     claimed: &mut HashSet<BookId>,
 ) -> Option<BookId> {
     let mut counts: HashMap<BookId, usize> = HashMap::new();
@@ -408,7 +412,12 @@ fn pick_target(
         .into_iter()
         .filter(|(b, _)| !claimed.contains(b))
         .collect();
-    ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    ranked.sort_by(|a, b| {
+        has_user_data(b.0)
+            .cmp(&has_user_data(a.0))
+            .then(b.1.cmp(&a.1))
+            .then(a.0.cmp(&b.0))
+    });
     let (book, _) = ranked.first().copied()?;
     claimed.insert(book);
     Some(book)

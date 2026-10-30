@@ -2,6 +2,8 @@
 //!
 //! - every `.m4b` is one book; an `.m4a` is one book when it has chapters or
 //!   is the only audio file of its folder (otherwise it is a track);
+//! - ...except that such container files sharing an album tag (or, without
+//!   albums, all numbered "n of N" by track tags) are the parts of one book;
 //! - the other files of a folder (disc folders merged in) form one book...
 //! - ...unless the folder looks like an author folder of loose files: then
 //!   files are split by album tag or, without albums, by filename prefix.
@@ -73,15 +75,33 @@ pub fn group_folder(group: &DirGroup, infos: &[Option<FileInfo>]) -> Vec<Candida
         ext_is(p, "m4b")
             || (ext_is(p, "m4a") && (only_one || info(i).is_some_and(|f| !f.chapters.is_empty())))
     });
-    let shares_folder = containers.len() + usize::from(!rest.is_empty()) > 1;
-    for i in containers {
-        candidates.push(Candidate {
-            files: vec![i],
-            kind: GroupKind::Container,
-            folder_guess: own_name_guess(group, i, shares_folder),
-            ordered_by_tags: false,
-            inconsistent_numbering: false,
-        });
+    let container_books = group_containers(infos, &containers);
+    let shares_folder = container_books.len() + usize::from(!rest.is_empty()) > 1;
+    for files in container_books {
+        if let [i] = files[..] {
+            candidates.push(Candidate {
+                files: vec![i],
+                kind: GroupKind::Container,
+                folder_guess: own_name_guess(group, i, shares_folder),
+                ordered_by_tags: false,
+                inconsistent_numbering: false,
+            });
+        } else {
+            // A book split into several container files ("Part 1 of 12").
+            let (files, ordered_by_tags, inconsistent_numbering) = order(group, infos, files);
+            let folder_guess = if shares_folder {
+                book_name_guess(group, infos, &files)
+            } else {
+                group.rel_dir.clone()
+            };
+            candidates.push(Candidate {
+                files,
+                kind: GroupKind::Container,
+                folder_guess,
+                ordered_by_tags,
+                inconsistent_numbering,
+            });
+        }
     }
     if rest.is_empty() {
         return candidates;
@@ -151,6 +171,51 @@ pub fn group_folder(group: &DirGroup, infos: &[Option<FileInfo>]) -> Vec<Candida
         });
     }
     candidates
+}
+
+/// Splits a folder's container files into books: those sharing an album tag
+/// are one book; untagged ones are one book only when every file has a
+/// unique track number and they agree on a track total above 1 (otherwise
+/// untagged "Series 1.m4b", "Series 2.m4b" are separate volumes).
+fn group_containers(infos: &[Option<FileInfo>], containers: &[usize]) -> Vec<Vec<usize>> {
+    let tags = |i: usize| infos[i].as_ref().map(|f| &f.tags);
+    let mut by_album: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    let mut untagged = Vec::new();
+    for &i in containers {
+        match tags(i)
+            .and_then(|t| t.album.as_deref())
+            .map(match_key)
+            .filter(|k| !k.is_empty())
+        {
+            Some(k) => by_album.entry(k).or_default().push(i),
+            None => untagged.push(i),
+        }
+    }
+    let mut books: Vec<Vec<usize>> = by_album.into_values().collect();
+
+    let totals: Vec<Option<u32>> = untagged
+        .iter()
+        .map(|&i| tags(i).and_then(|t| t.track_total))
+        .collect();
+    let mut numbers: Vec<Option<u32>> = untagged
+        .iter()
+        .map(|&i| tags(i).and_then(|t| t.track))
+        .collect();
+    numbers.sort_unstable();
+    let numbered = untagged.len() > 1
+        && numbers.iter().all(Option::is_some)
+        && numbers.windows(2).all(|w| w[0] != w[1])
+        && totals
+            .iter()
+            .all(|t| t.is_some_and(|n| n > 1) && *t == totals[0]);
+    if numbered {
+        books.push(untagged);
+    } else {
+        books.extend(untagged.into_iter().map(|i| vec![i]));
+    }
+    // Keep the folder's file order between books.
+    books.sort_by_key(|b| b.iter().min().copied());
+    books
 }
 
 /// "Author/Book.m4b" sharing a folder with other books: guess from
@@ -440,6 +505,67 @@ mod tests {
         assert_eq!(c.len(), 2);
         assert!(c.iter().all(|c| c.kind == GroupKind::Container));
         assert_eq!(c[0].folder_guess, PathBuf::from("Author/First"));
+    }
+
+    #[test]
+    fn m4b_parts_sharing_an_album_are_one_book() {
+        // An audiobook split into numbered m4b parts (seen in a real library).
+        let part = |n: u32| FileTags {
+            album: Some("Il profeta dell'incubo: Il Ciclo del sogno".into()),
+            title: Some(format!("{n} - Il profeta dell'incubo: Capitolo {n}")),
+            track: Some(n),
+            track_total: Some(12),
+            ..FileTags::default()
+        };
+        let mut b = Builder::new("Il profeta dell_incubo");
+        // Listed in the order a directory read returned them.
+        for n in [6, 5, 4, 3, 12, 1, 7, 9, 2, 8, 11, 10] {
+            b = b.file(&format!("Il profeta dell_incubo - Il Ciclo del sogno [B07KJGK3WY] - {n:02} - Capitolo {n}.m4b"), part(n));
+        }
+        let c = b.run();
+        assert_eq!(c.len(), 1, "{c:?}");
+        assert_eq!(c[0].kind, GroupKind::Container);
+        assert!(c[0].ordered_by_tags && !c[0].inconsistent_numbering);
+        let order: Vec<String> = b
+            .names(&c[0])
+            .iter()
+            .map(|n| n[n.len() - 15..].to_string())
+            .collect();
+        assert!(
+            order[0].ends_with("Capitolo 1.m4b")
+                && order[1].ends_with("Capitolo 2.m4b")
+                && order[11].ends_with("Capitolo 12.m4b"),
+            "{order:?}"
+        );
+        assert_eq!(c[0].folder_guess, PathBuf::from("Il profeta dell_incubo"));
+    }
+
+    #[test]
+    fn untagged_numbered_m4b_merge_only_with_consistent_track_tags() {
+        let n = |track: u32, total: u32| FileTags {
+            track: Some(track),
+            track_total: Some(total),
+            ..FileTags::default()
+        };
+        let b = Builder::new("A/B")
+            .file("x 2.m4b", n(2, 2))
+            .file("x 1.m4b", n(1, 2));
+        assert_eq!(b.run().len(), 1);
+        // No tags at all: separate volumes.
+        let b = Builder::new("A")
+            .file("Series 1.m4b", FileTags::default())
+            .file("Series 2.m4b", FileTags::default());
+        assert_eq!(b.run().len(), 2);
+        // Disagreeing totals: separate.
+        let b = Builder::new("A")
+            .file("a.m4b", n(1, 3))
+            .file("b.m4b", n(2, 5));
+        assert_eq!(b.run().len(), 2);
+        // Different albums: separate books.
+        let b = Builder::new("Ann")
+            .file("One.m4b", album("One"))
+            .file("Two.m4b", album("Two"));
+        assert_eq!(b.run().len(), 2);
     }
 
     #[test]

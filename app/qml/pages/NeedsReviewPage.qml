@@ -11,6 +11,7 @@ Kirigami.ScrollablePage {
     id: page
 
     required property LibraryController library
+    required property int revision
 
     signal bookRequested(var bookId)
 
@@ -21,7 +22,7 @@ Kirigami.ScrollablePage {
         id: list
         model: BookListModel {
             databasePath: page.library.databasePath
-            revision: page.library.revision
+            revision: page.revision
             filter: 1
         }
 

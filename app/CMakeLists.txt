@@ -8,8 +8,8 @@ add_library(audium_ui STATIC
     src/playback/playbackcontroller.h
     src/playback/mpvplaybackbackend.cpp
     src/playback/mpvplaybackbackend.h
-    src/libraryplayback.cpp
-    src/libraryplayback.h
+    src/sessionwiring.cpp
+    src/sessionwiring.h
 )
 qt_add_qml_module(audium_ui
     URI org.audium.app
@@ -23,6 +23,9 @@ qt_add_qml_module(audium_ui
         qml/pages/SettingsPage.qml
         qml/components/MiniPlayer.qml
         qml/components/BookCover.qml
+        qml/components/BookTile.qml
+        qml/components/BookRow.qml
+        qml/components/SleepTimerButton.qml
         qml/components/TimeFormat.js
         qml/components/ReviewReasons.js
 )

@@ -93,6 +93,8 @@ pub struct ExistingTrack {
 pub struct ExistingBook {
     pub uid: BookUid,
     pub grouping_locked: bool,
+    /// Has progress, bookmarks, sessions, overrides, settings or collections.
+    pub has_user_data: bool,
     /// Raw `overrides` rows: field -> value.
     pub overrides: HashMap<String, String>,
 }
@@ -124,16 +126,19 @@ pub fn snapshot(conn: &Connection) -> Result<Snapshot> {
     })?;
     snap.tracks = rows.collect::<rusqlite::Result<_>>()?;
 
-    let mut stmt = conn.prepare("SELECT id, uid, grouping_locked FROM books")?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT id, uid, grouping_locked, {HAS_USER_DATA} FROM books"
+    ))?;
     let rows = stmt.query_map([], |r| {
         Ok((
             r.get::<_, i64>(0)?,
             r.get::<_, String>(1)?,
             r.get::<_, bool>(2)?,
+            r.get::<_, bool>(3)?,
         ))
     })?;
     for row in rows {
-        let (id, uid, locked) = row?;
+        let (id, uid, locked, has_user_data) = row?;
         let uid = BookUid::parse(&uid)
             .ok_or_else(|| StorageError::Invalid(format!("book {id} has uid {uid:?}")))?;
         snap.books.insert(
@@ -141,6 +146,7 @@ pub fn snapshot(conn: &Connection) -> Result<Snapshot> {
             ExistingBook {
                 uid,
                 grouping_locked: locked,
+                has_user_data,
                 overrides: HashMap::new(),
             },
         );

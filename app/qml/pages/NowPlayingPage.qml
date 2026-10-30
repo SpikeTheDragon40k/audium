@@ -3,12 +3,14 @@ import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.audium.app
+import org.audium.bridge
 import "../components/TimeFormat.js" as TimeFormat
 
 Kirigami.ScrollablePage {
     id: page
 
     required property PlaybackController player
+    required property PlaybackSession session
     required property int skipBackMs
     required property int skipForwardMs
 
@@ -32,6 +34,22 @@ Kirigami.ScrollablePage {
             width: chapterList.width
             spacing: Kirigami.Units.largeSpacing
 
+            BookCover {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: Kirigami.Units.largeSpacing
+                Layout.preferredWidth: Kirigami.Units.gridUnit * 10
+                Layout.preferredHeight: Layout.preferredWidth
+                visible: page.session.bookId > 0
+                source: page.session.coverUrl
+            }
+            QQC2.Label {
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+                visible: page.session.bookTitle.length > 0
+                text: page.session.bookTitle
+                wrapMode: Text.Wrap
+                color: Kirigami.Theme.disabledTextColor
+            }
             Kirigami.Heading {
                 Layout.fillWidth: true
                 Layout.topMargin: Kirigami.Units.largeSpacing
@@ -127,6 +145,10 @@ Kirigami.ScrollablePage {
                     onClicked: page.player.nextChapter()
                     QQC2.ToolTip.text: text
                     QQC2.ToolTip.visible: hovered
+                }
+                SleepTimerButton {
+                    session: page.session
+                    enabledForBook: page.session.bookId > 0
                 }
             }
 

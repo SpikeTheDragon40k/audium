@@ -194,6 +194,18 @@ private Q_SLOTS:
         QVERIFY(near(player->position(), 3200));
     }
 
+    void startsAtTheStartOfALaterTrack()
+    {
+        loadAndWait(folderBook(2000), 2, 0);
+        QCOMPARE(player->trackIndex(), 2);
+        QTest::qWait(300);
+        QCOMPARE(player->trackIndex(), 2);
+        QVERIFY(player->trackPosition() < 300);
+        player->play();
+        QTRY_COMPARE(player->state(), State::Playing);
+        QCOMPARE(player->trackIndex(), 2);
+    }
+
     void rateIsAppliedAndClamped()
     {
         loadAndWait({track(M4b)});

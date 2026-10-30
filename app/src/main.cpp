@@ -11,7 +11,8 @@
 #include <KLocalizedString>
 
 #include "audium_bridge/src/library_controller.cxxqt.h"
-#include "libraryplayback.h"
+#include "audium_bridge/src/playback_session.cxxqt.h"
+#include "sessionwiring.h"
 #include "playback/mpvplaybackbackend.h"
 
 Q_IMPORT_QML_PLUGIN(org_audium_appPlugin)
@@ -39,18 +40,21 @@ int main(int argc, char *argv[])
 
     // Created before the engine so they outlive every QML binding using them.
     MpvPlaybackBackend player;
-    LibraryPlayback libraryPlayback(&player);
     LibraryController library;
+    PlaybackSession session;
+    SessionWiring wiring(&player, &session);
     // Failure is shown in the UI (library.errorString); playback still works.
-    library.open(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation),
-                 QStandardPaths::writableLocation(QStandardPaths::CacheLocation));
+    if (library.open(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation),
+                     QStandardPaths::writableLocation(QStandardPaths::CacheLocation))) {
+        session.setDatabasePath(library.getDatabasePath());
+    }
 
     QQmlApplicationEngine engine;
     KLocalization::setupLocalizedContext(&engine);
     engine.setInitialProperties({
         {QStringLiteral("player"), QVariant::fromValue(static_cast<PlaybackController *>(&player))},
         {QStringLiteral("library"), QVariant::fromValue(&library)},
-        {QStringLiteral("libraryPlayback"), QVariant::fromValue(&libraryPlayback)},
+        {QStringLiteral("session"), QVariant::fromValue(&session)},
     });
     engine.loadFromModule("org.audium.app", "Main");
     if (engine.rootObjects().isEmpty()) {

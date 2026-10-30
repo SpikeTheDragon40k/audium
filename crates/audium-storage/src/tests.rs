@@ -418,3 +418,183 @@ fn unicode_and_non_utf8_paths_round_trip() {
             .all(|p| snap.tracks.iter().any(|t| &t.path == p))
     );
 }
+
+mod playback_state {
+    use super::*;
+    use crate::playback::{self, SessionRecord};
+
+    fn two_books(db: &mut Database) -> (BookId, BookId) {
+        let lib = write::add_library(db, Path::new("/books")).expect("lib");
+        write::apply(
+            db,
+            lib,
+            &ScanChanges {
+                books: vec![
+                    book(
+                        BookTarget::New(uid(1)),
+                        "Alpha",
+                        &["A"],
+                        vec![track("/books/a.m4b", 10_000)],
+                    ),
+                    book(
+                        BookTarget::New(uid(2)),
+                        "Beta",
+                        &["B"],
+                        vec![track("/books/b.m4b", 10_000)],
+                    ),
+                ],
+                ..Default::default()
+            },
+        )
+        .expect("apply");
+        (book_id_by_title(db, "Alpha"), book_id_by_title(db, "Beta"))
+    }
+
+    fn titles(db: &Database, filter: BookFilter) -> Vec<String> {
+        read::list_books(db.conn(), filter)
+            .expect("list")
+            .into_iter()
+            .map(|b| b.title)
+            .collect()
+    }
+
+    #[test]
+    fn progress_round_trips_and_feeds_continue_listening() {
+        let (_dir, mut db) = db();
+        let (a, b) = two_books(&mut db);
+        assert_eq!(playback::progress(db.conn(), a).expect("q"), None);
+        let ta = read::tracks(db.conn(), a).expect("t")[0].id;
+
+        playback::save_progress(db.conn(), a, Some(ta), 1234, 1234, 1_000).expect("save");
+        playback::save_progress(db.conn(), b, None, 50, 50, 2_000).expect("save");
+        let p = playback::progress(db.conn(), a).expect("q").expect("some");
+        assert_eq!(
+            (p.track_id, p.offset_ms, p.book_position_ms, p.finished),
+            (Some(ta), 1234, 1234, false)
+        );
+        assert_eq!(
+            titles(&db, BookFilter::ContinueListening),
+            ["Beta", "Alpha"],
+            "most recent first"
+        );
+
+        playback::save_progress(db.conn(), a, Some(ta), 2000, 2000, 3_000).expect("save");
+        assert_eq!(
+            titles(&db, BookFilter::ContinueListening),
+            ["Alpha", "Beta"]
+        );
+        let s = read::book_summary(db.conn(), a).expect("q").expect("some");
+        assert_eq!(
+            (s.position_ms, s.finished, s.last_played_at),
+            (2000, false, Some(3_000))
+        );
+    }
+
+    #[test]
+    fn finishing_and_restarting() {
+        let (_dir, mut db) = db();
+        let (a, _) = two_books(&mut db);
+        playback::save_progress(db.conn(), a, None, 9_000, 9_000, 1_000).expect("save");
+        playback::mark_finished(db.conn(), a, None, 10_000, 10_000, 2_000).expect("finish");
+        assert!(
+            playback::progress(db.conn(), a)
+                .expect("q")
+                .expect("p")
+                .finished
+        );
+        assert_eq!(titles(&db, BookFilter::Finished), ["Alpha"]);
+        assert!(titles(&db, BookFilter::ContinueListening).is_empty());
+
+        // Any later save, even in the same millisecond, means it was restarted.
+        playback::save_progress(db.conn(), a, None, 0, 0, 2_000).expect("restart");
+        assert!(
+            !playback::progress(db.conn(), a)
+                .expect("q")
+                .expect("p")
+                .finished
+        );
+        assert_eq!(titles(&db, BookFilter::ContinueListening), ["Alpha"]);
+        assert!(titles(&db, BookFilter::Finished).is_empty());
+        let finished_at: Option<i64> = db
+            .conn()
+            .query_row("SELECT finished_at FROM progress", [], |r| r.get(0))
+            .expect("q");
+        assert_eq!(finished_at, Some(2_000), "history kept");
+    }
+
+    #[test]
+    fn speed_sessions_settings_and_recent() {
+        let (_dir, mut db) = db();
+        let (a, _) = two_books(&mut db);
+        assert_eq!(playback::book_speed(db.conn(), a).expect("q"), None);
+        playback::set_book_speed(db.conn(), a, 1.5).expect("speed");
+        playback::set_book_speed(db.conn(), a, 1.75).expect("speed");
+        assert_eq!(playback::book_speed(db.conn(), a).expect("q"), Some(1.75));
+
+        let s = SessionRecord {
+            book: a,
+            started_at: 1,
+            ended_at: 9_001,
+            start_position_ms: 0,
+            end_position_ms: 9_000,
+            listened_ms: 9_000,
+        };
+        playback::record_session(db.conn(), &s).expect("session");
+        let n: i64 = db
+            .conn()
+            .query_row("SELECT count(*) FROM sessions", [], |r| r.get(0))
+            .expect("q");
+        assert_eq!(n, 1);
+
+        assert_eq!(
+            playback::setting(db.conn(), "skip_back_ms").expect("q"),
+            None
+        );
+        playback::set_setting(db.conn(), "skip_back_ms", "10000").expect("set");
+        playback::set_setting(db.conn(), "skip_back_ms", "20000").expect("set");
+        assert_eq!(
+            playback::setting(db.conn(), "skip_back_ms")
+                .expect("q")
+                .as_deref(),
+            Some("20000")
+        );
+
+        assert_eq!(
+            read::list_books(db.conn(), BookFilter::RecentlyAdded)
+                .expect("recent")
+                .len(),
+            2
+        );
+        // Speed and sessions are user data: the book survives removal of its library.
+        let lib = write::libraries(db.conn()).expect("libs")[0].id;
+        write::remove_library(&mut db, lib).expect("remove");
+        assert_eq!(titles(&db, BookFilter::All), ["Alpha"]);
+    }
+
+    #[test]
+    fn writer_runs_jobs_in_order_and_flushes_on_drop() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("audium.db");
+        drop(Database::open(&path).expect("create"));
+        let writer = crate::Writer::open(&path).expect("writer");
+        for i in 0..100 {
+            writer.submit(move |db| {
+                playback::set_setting(db.conn(), "counter", &i.to_string()).expect("write");
+            });
+        }
+        writer.flush();
+        let ro = crate::ReadOnly::open(&path).expect("ro");
+        assert_eq!(
+            playback::setting(ro.conn(), "counter")
+                .expect("q")
+                .as_deref(),
+            Some("99")
+        );
+        writer.submit(|db| playback::set_setting(db.conn(), "last", "yes").expect("write"));
+        drop(writer);
+        assert_eq!(
+            playback::setting(ro.conn(), "last").expect("q").as_deref(),
+            Some("yes")
+        );
+    }
+}

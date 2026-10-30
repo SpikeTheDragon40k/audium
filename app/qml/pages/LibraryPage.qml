@@ -12,6 +12,8 @@ Kirigami.Page {
 
     required property PlaybackController player
     required property LibraryController library
+    required property PlaybackSession session
+    required property int revision
 
     signal bookRequested(var bookId)
     signal reviewRequested()
@@ -19,20 +21,24 @@ Kirigami.Page {
     signal nowPlayingRequested()
 
     property bool gridView: true
+    // "Home" (continue listening, recent, finished) or "All Books".
+    property bool homeTab: true
 
     objectName: "libraryPage"
     title: i18nc("@title", "Library")
     padding: 0
 
-    // No DisplayHint.AlwaysHide here: with Kirigami 6.31 it makes the action
-    // toolbar destroy delegates during incubation (Qt warnings at startup).
-    // Kirigami moves actions to the overflow menu by itself when space is short.
+    // With Kirigami 6.31, actions that are hidden when the page is created
+    // (DisplayHint.AlwaysHide, or `visible: false`) make the action toolbar
+    // destroy delegates during incubation (Qt warnings). So: no hidden
+    // actions; disable instead, and let Kirigami overflow by itself.
     actions: [
         Kirigami.Action {
             icon.name: "view-list-icons"
             text: i18nc("@action:button", "Grid")
             checkable: true
             checked: page.gridView
+            enabled: !page.homeTab
             displayHint: Kirigami.DisplayHint.IconOnly
             onTriggered: page.gridView = true
         },
@@ -41,14 +47,9 @@ Kirigami.Page {
             text: i18nc("@action:button", "List")
             checkable: true
             checked: !page.gridView
+            enabled: !page.homeTab
             displayHint: Kirigami.DisplayHint.IconOnly
             onTriggered: page.gridView = false
-        },
-        Kirigami.Action {
-            icon.name: "dialog-warning"
-            text: i18nc("@action:button %1 is a number", "Needs Review (%1)", page.library.reviewCount)
-            visible: page.library.reviewCount > 0
-            onTriggered: page.reviewRequested()
         },
         Kirigami.Action {
             icon.name: "view-refresh"
@@ -89,6 +90,18 @@ Kirigami.Page {
         Kirigami.InlineMessage {
             Layout.fillWidth: true
             position: Kirigami.InlineMessage.Header
+            type: Kirigami.MessageType.Warning
+            visible: page.library.reviewCount > 0 && !page.library.scanning
+            text: i18np("1 book may need a review.", "%1 books may need a review.", page.library.reviewCount)
+            actions: Kirigami.Action {
+                text: i18nc("@action:button", "Review")
+                icon.name: "document-edit"
+                onTriggered: page.reviewRequested()
+            }
+        }
+        Kirigami.InlineMessage {
+            Layout.fillWidth: true
+            position: Kirigami.InlineMessage.Header
             type: Kirigami.MessageType.Information
             text: page.library.scanStatus
             visible: page.library.scanning
@@ -106,13 +119,44 @@ Kirigami.Page {
             value: page.library.scanDone
             indeterminate: page.library.scanTotal === 0
         }
+        QQC2.TabBar {
+            Layout.fillWidth: true
+            visible: books.count > 0
+            currentIndex: page.homeTab ? 0 : 1
+            QQC2.TabButton {
+                text: i18nc("@title:tab", "Home")
+                onClicked: page.homeTab = true
+            }
+            QQC2.TabButton {
+                text: i18nc("@title:tab %1 is a number", "All Books (%1)", books.count)
+                onClicked: page.homeTab = false
+            }
+        }
     }
 
     BookListModel {
         id: books
         databasePath: page.library.databasePath
-        revision: page.library.revision
+        revision: page.revision
         filter: 0
+    }
+    BookListModel {
+        id: continueListening
+        databasePath: page.library.databasePath
+        revision: page.revision
+        filter: 2
+    }
+    BookListModel {
+        id: recentlyAdded
+        databasePath: page.library.databasePath
+        revision: page.revision
+        filter: 3
+    }
+    BookListModel {
+        id: finishedBooks
+        databasePath: page.library.databasePath
+        revision: page.revision
+        filter: 4
     }
 
     Kirigami.PlaceholderMessage {
@@ -132,12 +176,47 @@ Kirigami.Page {
         }
     }
 
-    QQC2.ScrollView {
+    // Each view fills the page and scrolls itself. (Inside a ScrollView a
+    // Loader has no size, so the views were zero-sized and not clickable.)
+    Loader {
+        id: view
         anchors.fill: parent
         visible: books.count > 0
+        sourceComponent: page.homeTab ? homeComponent : page.gridView ? gridComponent : listComponent
+    }
 
-        Loader {
-            sourceComponent: page.gridView ? gridComponent : listComponent
+    Component {
+        id: homeComponent
+        Flickable {
+            objectName: "homeView"
+            clip: true
+            contentWidth: width
+            contentHeight: rows.implicitHeight + Kirigami.Units.largeSpacing
+            boundsBehavior: Flickable.StopAtBounds
+            QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
+            ColumnLayout {
+                id: rows
+                width: parent.width
+                spacing: Kirigami.Units.largeSpacing
+                BookRow {
+                    Layout.fillWidth: true
+                    title: i18nc("@title:group", "Continue Listening")
+                    model: continueListening
+                    onBookRequested: id => page.bookRequested(id)
+                }
+                BookRow {
+                    Layout.fillWidth: true
+                    title: i18nc("@title:group", "Recently Added")
+                    model: recentlyAdded
+                    onBookRequested: id => page.bookRequested(id)
+                }
+                BookRow {
+                    Layout.fillWidth: true
+                    title: i18nc("@title:group", "Finished")
+                    model: finishedBooks
+                    onBookRequested: id => page.bookRequested(id)
+                }
+            }
         }
     }
 
@@ -145,51 +224,23 @@ Kirigami.Page {
         id: gridComponent
         GridView {
             id: grid
-            readonly property int columns: Math.max(1, Math.floor(width / (Kirigami.Units.gridUnit * 10)))
+            objectName: "gridView"
+            readonly property real usableWidth: width - leftMargin - rightMargin
+            readonly property int columns: Math.max(1, Math.floor(usableWidth / (Kirigami.Units.gridUnit * 10)))
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
             model: books
-            cellWidth: width / columns
-            cellHeight: cellWidth + Kirigami.Units.gridUnit * 3.5
+            cellWidth: Math.floor(usableWidth / columns)
+            cellHeight: cellWidth + Kirigami.Units.gridUnit * 4
             leftMargin: Kirigami.Units.smallSpacing
             rightMargin: Kirigami.Units.smallSpacing
             topMargin: Kirigami.Units.smallSpacing
             reuseItems: true
-            delegate: QQC2.ItemDelegate {
-                id: tile
-                required property var bookId
-                required property string title
-                required property string authors
-                required property url coverUrl
-                required property bool available
+            delegate: BookTile {
                 width: grid.cellWidth
                 height: grid.cellHeight
-                onClicked: page.bookRequested(bookId)
-                QQC2.ToolTip.text: available ? title : i18n("%1 (unavailable)", title)
-                QQC2.ToolTip.visible: hovered
-                QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
-                contentItem: ColumnLayout {
-                    spacing: Kirigami.Units.smallSpacing
-                    BookCover {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: width
-                        source: tile.coverUrl
-                        available: tile.available
-                    }
-                    QQC2.Label {
-                        Layout.fillWidth: true
-                        text: tile.title
-                        elide: Text.ElideRight
-                        maximumLineCount: 2
-                        wrapMode: Text.Wrap
-                        font.bold: true
-                    }
-                    QQC2.Label {
-                        Layout.fillWidth: true
-                        text: tile.authors
-                        elide: Text.ElideRight
-                        color: Kirigami.Theme.disabledTextColor
-                        font: Kirigami.Theme.smallFont
-                    }
-                }
+                onBookRequested: id => page.bookRequested(id)
             }
         }
     }
@@ -198,6 +249,10 @@ Kirigami.Page {
         id: listComponent
         ListView {
             id: list
+            objectName: "listView"
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
             model: books
             reuseItems: true
             delegate: QQC2.ItemDelegate {

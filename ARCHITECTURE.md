@@ -188,9 +188,58 @@ Indexes:
 
 There's no async runtime. Rust worker threads never touch QObjects.
 
-*(Deviation in M2)* There is no dedicated writer thread yet. WAL plus `busy_timeout` (5 s) lets the scan thread and the rare UI-thread writes coexist, and each scan is a single transaction. M3 adds frequent progress writes; if those ever wait on a scan, they move to a writer thread.
+*(Deviation in M2, settled in M3)* There is no single writer for everything. Instead:
+- each scan writes from its own thread, in one transaction per root;
+- adding and removing library folders writes from the UI thread (rare);
+- everything playback writes goes through `audium_storage::Writer`. That's a thread with its own connection that runs queued writes in order: progress, finished marks, speed, sessions, settings. If a scan holds the write lock, a progress save waits on that thread (up to the 5 s busy timeout), not on the UI. Dropping the writer, or calling `flush()`, finishes every queued write.
 
-## 10. Platform integration
+## 10. Scanning and reconciliation (M2, refined in M3)
+- **Discovery:** recursive, following symlinks. walkdir detects loops; the same file reached twice (by device and inode) counts once. Hidden entries are skipped. Disc folders (`CD1`, `Disc 2`, `Part 03`, `Vol. 4`, `CD 1 of 3`) merge into their parent.
+- **Grouping** (`audium-library/src/grouping.rs`, pure and unit-tested):
+  - **Container files:** `.m4b`, and `.m4a` with chapters or alone in its folder, are each a book.
+    - *Except:* containers in one folder sharing an album tag are the parts of one book, ordered by track tags. Untagged containers merge only when all have unique track numbers with the same total above 1.
+    - *(This refines CLAUDE.md §5 "one m4b = one book". A real library had one book split into 12 numbered m4b parts.)*
+  - **Other files:** the rest of a folder forms one book, unless it has several album tags (split by album) or un-numbered names with different prefixes (split by name).
+  - **"Numbered" names:** the text after their common prefix starts with a number (`Chapitre 01 – début`, `The Hobbit - 02 - …`).
+  - **Order:** (disc, track) tags only when every file has a unique one; otherwise natural filename order, disc folders first.
+- **Confidence:** starts at 100 and loses points for each reason (missing or path-derived title or author, heuristic split, inconsistent numbering, unreadable files). Below 70, or without a title or author, the book goes to the review queue.
+- **Incremental rescans:** a folder whose files all match the stored path, size and mtime isn't opened. Sidecar edits are therefore only picked up by "Re-read Everything" (force).
+- **Rules version:** `audium_library::RULES_VERSION`, stored in `settings` after a scan that reached every library folder. When grouping or metadata rules change, raise it: the next scan is then forced once, because unchanged folders are otherwise never regrouped.
+- **Moves:** a file without a path match takes over a missing track with the same size and partial hash (blake3 of the size plus the first and last 64 KiB), so the book's id, progress and bookmarks follow. Hashes are computed once, for new or changed files.
+- **Regrouping:** each candidate book reuses the stored book most of its tracks belonged to, preferring one with user data. Books emptied by regrouping are deleted only without user data.
+- **Missing files:** tracks are marked missing and the book becomes unavailable. A scan never deletes a book for missing files.
+- **Unmounted roots:** a root that's unreachable, or that suddenly has no audio files while the database knows some, marks the library unavailable and changes nothing else.
+- **Failure safety:** all changes for a root are applied in one transaction at the end; a cancelled or failed scan leaves the database untouched.
+
+## 11. Bridge and UI (M2–M3)
+- **`LibraryController`:** created in `main.cpp`, `open(dataDir, cacheDir)` with `QStandardPaths` locations, and passed to QML as an initial property. It holds the read-write connection for folder changes, runs scans on a thread, and publishes progress through `CxxQtThread::queue`. `revision` tells models to reload.
+- **`BookListModel` and `BookDetails`:** created in QML. They bind `databasePath` and `revision` and reload through `cxx_qt::Initialize` signal connections; each reload opens a short-lived read-only connection.
+- **Read-only Rust properties:** set with the crate's `set_ro!` macro (assign plus emit if changed).
+- **Kirigami 6.31 rule:** page actions must not be hidden when the page is created, neither by `DisplayHint.AlwaysHide` nor by `visible: false`. Either makes `ActionToolBar` destroy delegates during incubation (Qt warnings). Disable actions instead, or use an `InlineMessage` with an action, like the "Needs review" banner.
+- **Pages:** created with `pageStack` as parent and destroyed shortly after removal. Destroying them immediately triggers the same incubation warning when navigating quickly. Now Playing is one persistent instance.
+- **Views fill the page and scroll themselves.** A `Loader` inside a `ScrollView` gets no size, which made the library views blank and unclickable (found in M3).
+- **Tests:** any Qt/QML warning fails `test_bridge`. It loads the UI with an empty and with a full library, checks view sizes, and clicks tiles with real mouse events.
+
+## 12. Playback session (M3)
+- **`PlaybackSession` (Rust bridge object):** created in `main.cpp`. It owns the policy:
+  - **what to load:** a book's playable tracks, chapters, resume point and speed. `core::position::resume_point` resumes by track id, falls back to the book-wide position, and moves a position within 0.5 s of a track's end to the next track.
+  - **when to save:** `core::progress`: every 5 s while playing, and immediately on pause, track change, seek (a jump of more than 3 s) and quit;
+  - **listening sessions:** `core::listening`, stretches of at least 5 s;
+  - **end of book:** marks the book finished;
+  - **sleep timer:** `core::sleep`.
+- **`SessionWiring` (C++):** connects session and controller on the Qt thread.
+  - `loadRequested` → it reads `pending*()`, loads, sets the speed and plays.
+  - Controller state, position, rate and end of book go to the session; `pauseRequested` and `fadeRequested` go back.
+  - Loads from elsewhere ("Open Files") detach the session.
+  - `aboutToQuit` → `shutdown()`, which saves and flushes.
+- **Finished:** `progress.finished_at` is kept as history. A book counts as finished while `finished_at >= updated_at`, so any later save means it was restarted. After finishing, the final position is never saved again; replay starts at 0.
+- **Sleep timer:** counts only while playing, ticked by position updates. The last 10 s fade the output through `PlaybackController::setVolumeFactor`; the user's volume never changes. Mouse, key, wheel and touch events anywhere in Audium (an application event filter) extend a fading timer: minutes restart, "end of chapter" moves to the next chapter's end. Only for library books.
+- **View refresh:** `revision` bumps only after the session's writes commit (a writer job queues it to the Qt thread), on pause, stop, finish and book change, not on the 5 s saves. Views bind `library.revision + session.revision`; dynamic pages get it through `Qt.binding`.
+- **mpv backend details:**
+  - mpv's volume isn't mirrored back into `volume`, so a fade never looks like a user change.
+  - Before building a playlist the backend sets `playlist-start` and ignores `FILE_LOADED` of other entries until the start track has loaded. Otherwise "resume at the start of track N" played track 1.
+
+## 13. Platform integration
 
 Integrations sit behind small interfaces. Each one fails independently and only logs a warning when it fails; playback never depends on them.
 
@@ -203,13 +252,13 @@ Integrations sit behind small interfaces. Each one fails independently and only 
 
 Windows dependencies come through **KDE Craft**, using its prebuilt binary cache, on a local Windows machine. Until M7, a Windows build is best-effort: the code stays portable and platform code stays isolated. Cold Craft builds take hours, and whether mpv is available through Craft is still unverified.
 
-## 11. Cross-cutting
+## 14. Cross-cutting
 
-- Logging: `tracing` + `tracing-subscriber` writing to stderr and a rotating file in the data directory. C++ logs through `qCInfo` categories.
+- Logging: `tracing` + `tracing-subscriber` writing to stderr (a log file in the data directory is still open). C++ logs through `qCInfo` categories.
 - i18n: KI18n (`i18n()` in QML) from the start. English only for now.
 - No outbound network access at runtime.
 
-## 12. Risks
+## 15. Risks
 
 - **R1:** CXX-Qt 0.10 vs Qt 6.12, and how ECM and Corrosion work together. **Resolved on Linux in M0** (CMake + Corrosion 0.6.1 + ECM 6.31 build; a QML singleton with properties and an invokable works from C++ and QML). Windows is still unverified. If it blocks, the fallbacks are, in order:
   1. CXX-Qt from git main;

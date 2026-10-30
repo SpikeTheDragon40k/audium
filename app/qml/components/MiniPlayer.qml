@@ -3,6 +3,7 @@ import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.audium.app
+import org.audium.bridge
 import "TimeFormat.js" as TimeFormat
 
 // Persistent player bar shown at the bottom of every page.
@@ -10,6 +11,7 @@ QQC2.ToolBar {
     id: bar
 
     required property PlaybackController player
+    required property PlaybackSession session
     required property int skipBackMs
     required property int skipForwardMs
 
@@ -61,7 +63,12 @@ QQC2.ToolBar {
                 spacing: 0
                 QQC2.Label {
                     Layout.fillWidth: true
-                    text: bar.player.chapterTitle.length > 0 ? bar.player.chapterTitle : bar.player.trackTitle
+                    text: {
+                        const part = bar.player.chapterTitle.length > 0 ? bar.player.chapterTitle : bar.player.trackTitle
+                        return bar.session.bookTitle.length > 0 && bar.session.bookTitle !== part
+                            ? i18nc("@info book title — chapter", "%1 — %2", bar.session.bookTitle, part)
+                            : part
+                    }
                     elide: Text.ElideRight
                 }
                 QQC2.Label {
@@ -75,6 +82,12 @@ QQC2.ToolBar {
                     elide: Text.ElideRight
                 }
             }
+        }
+
+        SleepTimerButton {
+            session: bar.session
+            // Only for library books: it needs the session's chapters.
+            enabledForBook: bar.session.bookId > 0
         }
 
         QQC2.Label {

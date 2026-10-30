@@ -9,12 +9,13 @@ Kirigami.ApplicationWindow {
 
     required property PlaybackController player
     required property LibraryController library
-    required property LibraryPlayback libraryPlayback
+    required property PlaybackSession session
 
-    // Skip intervals; configurable in Milestone 3.
-    readonly property int skipBackMs: 15000
-    readonly property int skipForwardMs: 30000
+    readonly property int skipBackMs: session.skipBackMs
+    readonly property int skipForwardMs: session.skipForwardMs
     readonly property real rateStep: 0.1
+    // Library views reload when a scan or saved progress changed.
+    readonly property int dataRevision: library.revision + session.revision
 
     // Removes the pages after `fromPage` and pushes a new page made from
     // `component`. Pages are created with the page stack as parent (pushing a
@@ -33,18 +34,22 @@ Kirigami.ApplicationWindow {
         const page = pushAfter(fromPage || libraryPage, bookDetailsComponent, {
             bookId: bookId,
             library: root.library,
-            libraryPlayback: root.libraryPlayback
+            session: root.session,
+            revision: Qt.binding(() => root.dataRevision)
         })
         page.nowPlayingRequested.connect(() => root.showNowPlaying())
     }
 
     function showReview() {
-        const page = pushAfter(libraryPage, needsReviewComponent, {library: root.library})
+        const page = pushAfter(libraryPage, needsReviewComponent, {
+            library: root.library,
+            revision: Qt.binding(() => root.dataRevision)
+        })
         page.bookRequested.connect(id => root.showBook(id, page))
     }
 
     function showSettings() {
-        pushAfter(libraryPage, settingsComponent, {library: root.library})
+        pushAfter(libraryPage, settingsComponent, {library: root.library, session: root.session})
     }
 
     function showNowPlaying() {
@@ -69,6 +74,8 @@ Kirigami.ApplicationWindow {
         id: libraryPage
         player: root.player
         library: root.library
+        session: root.session
+        revision: root.dataRevision
         onBookRequested: bookId => root.showBook(bookId, libraryPage)
         onReviewRequested: root.showReview()
         onSettingsRequested: root.showSettings()
@@ -88,6 +95,7 @@ Kirigami.ApplicationWindow {
 
     footer: MiniPlayer {
         player: root.player
+        session: root.session
         skipBackMs: root.skipBackMs
         skipForwardMs: root.skipForwardMs
         onNowPlayingRequested: root.showNowPlaying()
@@ -111,6 +119,7 @@ Kirigami.ApplicationWindow {
         id: nowPlayingPage
         visible: false
         player: root.player
+        session: root.session
         skipBackMs: root.skipBackMs
         skipForwardMs: root.skipForwardMs
     }
@@ -134,5 +143,10 @@ Kirigami.ApplicationWindow {
     Shortcut {
         sequence: "]"
         onActivated: root.player.rate = root.player.rate + root.rateStep
+    }
+    // Placeholder until search arrives (Milestone 4).
+    Shortcut {
+        sequences: [StandardKey.Find]
+        onActivated: root.showPassiveNotification(i18n("Search is not available yet."))
     }
 }

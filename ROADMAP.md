@@ -8,32 +8,25 @@ All builds run locally; GitHub hosts only the code and the Releases (see ARCHITE
 
 ## Current status
 
-- **Done:** environment check and design docs; M0 and M1 on Linux; **M2 on Linux** (all 2026-10-29).
-- **Next:** Milestone 3 (persistence).
+- **Done:** environment check and design docs; M0, M1 and M2 on Linux (2026-10-29); **M3 on Linux** (2026-10-30, reviewed).
+- **Next:** Milestone 4 (organization).
 - **Remote:** private GitHub repo `SpikeTheDragon40k/audium`, used for code and Releases only (no GitHub Actions).
 
-## Resume here (written 2026-10-29, end of session)
+## Resume here (updated 2026-10-30)
 
 State:
-- Branch `main`. M0, M1 and M2 are committed and pushed; `scripts/check.sh` passes.
-- `origin/main` matches local `main` (history rewritten to drop the Claude trailer; force-pushed by the maintainer on 2026-10-29).
-- M2 has not yet been tried on a real library by the maintainer.
+- Branch `main`. M0–M3 are committed and pushed (M3 reviewed and tested by the maintainer on 2026-10-30).
+- `scripts/check.sh` passes.
 
-Before starting M3:
-1. `scripts/check.sh` (rebuilds and runs every test; the first build takes a few minutes).
-2. Optionally run `build/bin/audium` on the real library and note grouping problems as M4 input.
-
-M3 plan (Persistence, MVP):
-1. **`PlaybackSession` (Rust, `crates/audium-bridge/src/playback_session.rs`):** loads a book by id: tracks and chapters from storage, resume position from `progress`, speed from `book_settings`. It drives the C++ `PlaybackController` through signal/slot wiring in `main.cpp` and replaces `app/src/libraryplayback.*`.
-2. **Progress saving:** `progress` (track_id + offset_ms, book_position_ms) is saved debounced every 5 s, and on pause, track change, seek and quit. Add storage functions plus tests for resume near track boundaries.
-3. **Sessions:** `sessions` rows (start/end, positions, listened_ms) per play stretch; feeds M5 stats.
-4. **End of book:** `endOfBook` → `progress.finished_at`; playing a finished book again starts from 0.
-5. **Per-book speed:** `book_settings.speed`, applied on load and saved on change.
-6. **Settings:** skip intervals in the `settings` table (replace the 15 s / 30 s constants in `Main.qml`).
-7. **Sleep timer:** a pure state machine in `audium-core` (minutes or end of chapter, 10 s fade, extend triggers as in ARCHITECTURE §5), ticked by a QTimer; fades through the controller's volume.
-8. **Library rows:** Continue Listening, Recently Added, Finished (new `BookFilter`s).
-9. **Shortcuts:** Ctrl+F placeholder (search itself is M4).
-10. **Writer thread:** decide whether progress writes need one (see ARCHITECTURE §9 deviation).
+Next: Milestone 4 (Organization). Suggested order, smallest slices first:
+1. Search: an FTS5 table (migration 0002), a `BookFilter::Search(text)` query, and a search field (Ctrl+F replaces the placeholder notification).
+2. Sorting (title, author, recently played, added) in `BookListModel`.
+3. Author and series pages (lists from `contributors`/`series`), then collections.
+4. Bookmarks with notes: `B` adds one at the current position (via the session); a list per book with chapter name; jump/edit/delete.
+5. A chapter browser in Book Details (jump to a chapter).
+6. The metadata override editor (`overrides` rows; lists are newline-separated, as `scan::parse_overrides` expects), then a rescan of that book.
+7. Merge and split from Needs Review; set `books.grouping_locked` and make the scanner honor it (currently ignored); "dismiss" for review items.
+8. Bookshelf view (covers on shelves grouped by series/author/collection, progress bar under each) as a third view toggle.
 
 ## M0 — Foundation
 - Cargo workspace with the 5 crates; `rust-toolchain.toml` (1.99.1).
@@ -210,6 +203,79 @@ Open / known limitations:
 - Shortcuts: Space, ←/→, `[` / `]`, and a Ctrl+F placeholder.
 - Tests: resume near track boundaries, sleep-timer logic, session recording.
 
+### M3 status (2026-10-30)
+Done and verified locally with `scripts/check.sh`. `test_session` passed 12 more runs, 4 in parallel.
+
+What's in it:
+- **`audium-core`:** pure state machines and functions with unit tests:
+  - `progress` (save schedule),
+  - `listening` (sessions),
+  - `sleep` (timer, fade, extension),
+  - `position::resume_point` (resume near track boundaries, missing tracks).
+- **`audium-storage`:**
+  - `playback` (progress, finished/restart, per-book speed, sessions, settings);
+  - the `Writer` thread;
+  - the Continue Listening, Recently Added and Finished filters;
+  - progress in `BookSummary`;
+  - `book_summary()`, so the details page no longer lists every book.
+- **Bridge:** `PlaybackSession` (replaces M2's C++ `LibraryPlayback`); progress and finished properties on `BookDetails`; progress roles (`positionMs`, `progress`, `finished`) and filters 2–4 on `BookListModel`.
+- **C++:** `SessionWiring`; `PlaybackController::setVolumeFactor`.
+- **UI:**
+  - Library has a Home tab (Continue Listening, Recently Added, Finished rows) and an All Books tab (grid/list);
+  - covers show progress bars and a finished mark;
+  - Book Details shows Play / Resume (with the time left) / Play Again and a progress bar;
+  - a sleep-timer button (5–90 min, end of chapter, off; shows the time left; a tooltip during the fade) in the mini-player and Now Playing;
+  - Now Playing shows the book's cover and title;
+  - Settings has Playback skip intervals (persisted);
+  - a "Needs review" banner replaces the toolbar action;
+  - Ctrl+F shows a "not available yet" note.
+- **Shortcuts:** Space, ←/→ (now the configured intervals), `[` / `]`, Ctrl+F placeholder. (`B` for bookmarks is M4.)
+
+Tests:
+- 101 Rust tests.
+- Qt: 18 playback, 11 session, 5 UI test functions.
+- `test_session` uses real libmpv and checks the database directly:
+  - progress saved on pause and resume after a restart;
+  - saved immediately on a track change, and on quit;
+  - resuming at a track end goes to the next track;
+  - speed remembered per book across runs;
+  - end of book marks it finished, nothing undoes that, and replay starts at 0 and clears "finished";
+  - listening sessions are recorded;
+  - the sleep timer fades and pauses without changing the user's volume;
+  - activity, including a key event through the wiring's filter, extends the fade;
+  - end-of-chapter sleep pauses at the chapter end;
+  - "Open Files" detaches the book without touching its progress;
+  - skip intervals persist.
+
+Bugs found by the maintainer on a real library (2026-10-30) and fixed:
+- **Home and All Books were blank and could not be clicked.** The views were in a `Loader` inside a `ScrollView`, which gives the `Loader` no size. The tests only checked that objects existed. Each view now fills the page and scrolls itself. `test_bridge` now shows the window, checks the views' sizes, and clicks a tile with a real mouse event in Home and All Books, expecting that book's details page. Verified: with the old layout the test fails (0×0 view).
+- **A book split into 12 numbered `.m4b` parts showed as 12 books.** Containers sharing an album tag are now one book (see ARCHITECTURE "Scanning"). Covered by a unit test of that exact layout and a new `multi-part-m4b` fixture in the end-to-end scan test. A read-only scan of the maintainer's `~/Music` into a throwaway database now gives 2 books (12 parts in order, 12 chapters, cover, confidence 100).
+- **Existing libraries keep a wrong grouping after an update**, since unchanged folders are never regrouped. Fixed with the rules version: the next scan of an existing library re-reads everything once.
+- **…and the first attempt at that did nothing.** A scripted text edit silently matched nothing, so the scan saved "rules version 2" without re-reading anything. The maintainer still saw 1 + 12 books. Fixed (now version 3, so already-affected libraries are re-read), and the version is only saved once every folder was really re-read. Regrouping now keeps the book with progress. There's a new end-to-end test (old one-book-per-part state, progress on part 2, normal scan leaves it, forced scan merges into part 2's book with progress intact). Verified on a copy of the maintainer's database: 13 → 2 books.
+- **Process fix:** my scripted edits now fail when a pattern doesn't match exactly once. Checking afterwards showed the M2 and M3 sections of ARCHITECTURE.md had also never been written; they are now (§10–12).
+
+Bugs found and fixed during M3:
+- **Resume at the start of track N played track 1.** mpv started the first playlist entry before `playlist-play-index` took effect. This was an M1 bug, hidden because M1 only tested start offsets above 0. The backend now sets `playlist-start` and ignores stray loads; `test_playback` has a regression test.
+- **Hidden toolbar actions (`visible: false` at creation)** caused the same Kirigami incubation warnings as `AlwaysHide`. The view toggles are now disabled instead, and Needs Review became a banner. A new empty-library UI test catches this; it was checked by temporarily adding a hidden action, which made it fail.
+- `StandardKey.Find` needs `sequences:`, not `sequence:`.
+
+Verified by hand:
+- The real app, with isolated data and cache folders, a fixtures copy as its library, saved progress and a finished book, started without warnings on Wayland and offscreen.
+
+Verified by the maintainer (2026-10-30), on their real library:
+- Audible playback through PipeWire works.
+- Grouping is correct after the fixes below (2 books, including a book split into 12 m4b parts).
+- The features work.
+
+Open from that test:
+- **The UI doesn't scale well when the window is resized.** It's functional, but the layouts don't adapt well. Moved to M7 (release polish), see there.
+
+Open / known limitations:
+- **Sleep timer:** only for library books.
+- **Activity outside Audium:** activity in other applications can't extend the fade on Wayland (by design). Media keys come with M6.
+- **Untranslated text:** Rust status strings are still not translatable.
+- **Default speed:** new books start at 1.0×; there's no global default-speed setting yet.
+
 ## M4 — Organization
 - Search (FTS) and sorting.
 - Author, series and collection pages; chapter browser.
@@ -240,5 +306,6 @@ Open / known limitations:
 - Windows: installer (Craft NSIS), built locally.
 - `scripts/release.sh`: build artifacts locally and run `gh release create`.
 - Dracula and Nord theme tokens.
+- **Responsive layout pass** (maintainer's feedback, M3): the UI doesn't scale well when the window is resized. Screenshot every page offscreen at narrow, normal and wide sizes, fix the layouts (Home rows and tiles, grid cells, Now Playing, Book Details, the library and details columns side by side), and add the screenshots or size checks to `test_bridge`.
 - Performance pass on a 1000-book synthetic library: scan time, list scrolling, memory.
 - Docs and known limitations.

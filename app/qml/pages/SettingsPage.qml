@@ -9,6 +9,7 @@ Kirigami.ScrollablePage {
     id: page
 
     required property LibraryController library
+    required property PlaybackSession session
 
     objectName: "settingsPage"
     title: i18nc("@title", "Settings")
@@ -79,6 +80,39 @@ Kirigami.ScrollablePage {
             wrapMode: Text.Wrap
             text: page.library.scanStatus
             visible: text.length > 0
+        }
+
+        Kirigami.Heading {
+            level: 2
+            text: i18nc("@title:group", "Playback")
+        }
+        Kirigami.FormLayout {
+            Layout.fillWidth: true
+            QQC2.SpinBox {
+                Kirigami.FormData.label: i18nc("@label:spinbox", "Skip back:")
+                from: 1
+                to: 600
+                value: Math.round(page.session.skipBackMs / 1000)
+                textFromValue: (v, locale) => i18ncp("@item:spinbox", "%1 second", "%1 seconds", v)
+                valueFromText: (text, locale) => parseInt(text, 10)
+                onValueModified: page.session.skipBackMs = value * 1000
+            }
+            QQC2.SpinBox {
+                Kirigami.FormData.label: i18nc("@label:spinbox", "Skip forward:")
+                from: 1
+                to: 600
+                value: Math.round(page.session.skipForwardMs / 1000)
+                textFromValue: (v, locale) => i18ncp("@item:spinbox", "%1 second", "%1 seconds", v)
+                valueFromText: (text, locale) => parseInt(text, 10)
+                onValueModified: page.session.skipForwardMs = value * 1000
+            }
+            QQC2.Label {
+                Kirigami.FormData.label: i18nc("@label", "Speed:")
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: i18n("Each book remembers its own speed.")
+                color: Kirigami.Theme.disabledTextColor
+            }
         }
 
         Kirigami.Heading {

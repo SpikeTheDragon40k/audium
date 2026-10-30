@@ -32,7 +32,7 @@ protected:
     void backendStop() override;
     void backendSeek(int trackIndex, qint64 offsetMs) override;
     void backendSetRate(double rate) override;
-    void backendSetVolume(int volume) override;
+    void backendSetVolume(double volume) override;
 
 private:
     static void wakeup(void *context);
@@ -57,5 +57,8 @@ private:
     bool m_wantPlaying = false;
     bool m_anyTrackLoaded = false;
     int m_pendingSeekTrack = -1;
+    // After a load: the track that must load first. mpv may briefly start
+    // another entry of the new playlist; those loads are ignored.
+    int m_awaitTrack = -1;
     qint64 m_pendingSeekMs = 0;
 };
