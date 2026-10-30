@@ -10,6 +10,7 @@ fn main() {
             "src/playback_session.rs",
             "src/group_list_model.rs",
             "src/bookmark_list_model.rs",
+            "src/stats_model.rs",
         ])
         .build();
 }

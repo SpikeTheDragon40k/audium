@@ -7,6 +7,8 @@
 #include <QQuickWindow>
 #include <QtQml/QQmlExtensionPlugin>
 #include <QSignalSpy>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 #include <QTemporaryDir>
 #include <algorithm>
 #include <QtTest>
@@ -53,6 +55,17 @@ QQuickItem *visibleTile(QQuickItem *view)
     return nullptr;
 }
 
+// With AUDIUM_SCREENSHOT_DIR set, saves what the window shows as <name>.png
+// (for looking at layouts; not an assertion).
+void screenshot(QQuickWindow *window, const QString &name)
+{
+    const QString dir = qEnvironmentVariable("AUDIUM_SCREENSHOT_DIR");
+    if (!dir.isEmpty()) {
+        QTest::qWait(300);
+        window->grabWindow().save(dir + QLatin1Char('/') + name + QStringLiteral(".png"));
+    }
+}
+
 // A tile named `objectName` of `view` that is on screen.
 QQuickItem *visibleItem(QQuickItem *view, const QString &objectName)
 {
@@ -68,10 +81,27 @@ QQuickItem *visibleItem(QQuickItem *view, const QString &objectName)
     return nullptr;
 }
 
+// Waits until `item` stops moving (page and column transitions), as a
+// person would before clicking it.
+bool waitUntilStill(QQuickItem *item)
+{
+    QRectF last = item->mapRectToScene(item->boundingRect());
+    for (int i = 0; i < 40; ++i) {
+        QTest::qWait(100);
+        const QRectF now = item->mapRectToScene(item->boundingRect());
+        if (now == last) {
+            return true;
+        }
+        last = now;
+    }
+    return false;
+}
+
 // Like a user: move the pointer there (ending hovers and their tooltips
 // elsewhere, which would otherwise swallow the press), then click.
 void click(QQuickWindow *window, QQuickItem *item)
 {
+    waitUntilStill(item);
     const QPoint p = item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint();
     QTest::mouseMove(window, p);
     QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, p);
@@ -285,6 +315,29 @@ private Q_SLOTS:
         QTRY_VERIFY((tile = visibleTile(home)));
         QVERIFY(clickOpensDetails(window, tile));
 
+        // The details column can be closed: with its Close button, clicked
+        // like a user, and with Escape. (In a wide window Kirigami's back
+        // button is disabled for columns that are all on screen.)
+        QObject *pageStack = window->property("pageStack").value<QObject *>();
+        QTRY_COMPARE(pageStack->property("depth").toInt(), 2);
+        QQuickItem *closeButton = nullptr;
+        QTRY_VERIFY((closeButton = visibleButton(window, QStringLiteral("window-close"))));
+        click(window, closeButton);
+        QTRY_COMPARE(pageStack->property("depth").toInt(), 1);
+        QTRY_VERIFY((tile = visibleTile(home)));
+        QVERIFY(clickOpensDetails(window, tile));
+        QTRY_COMPARE(pageStack->property("depth").toInt(), 2);
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_COMPARE(pageStack->property("depth").toInt(), 1);
+        // Now Playing closes the same way.
+        QVERIFY(QMetaObject::invokeMethod(window, "showNowPlaying"));
+        QTRY_COMPARE(pageStack->property("depth").toInt(), 2);
+        QTRY_VERIFY((closeButton = visibleButton(window, QStringLiteral("window-close"))));
+        click(window, closeButton);
+        QTRY_COMPARE(pageStack->property("depth").toInt(), 1);
+        QTRY_VERIFY((tile = visibleTile(home)));
+        QVERIFY(clickOpensDetails(window, tile));
+
         // So is "Books": grid, list and bookshelf.
         QVERIFY(libraryPage->setProperty("tab", 1));
         QQuickItem *grid = nullptr;
@@ -323,6 +376,11 @@ private Q_SLOTS:
             QTRY_VERIFY(std::ranges::any_of(window->findChildren<QObject *>(QStringLiteral("booksPage")), [&](QObject *p) {
                 return p->property("name").toString() == name;
             }));
+            // ...and the group's page closes with its Close button.
+            QTRY_COMPARE(pageStack->property("depth").toInt(), 2);
+            QTRY_VERIFY((closeButton = visibleButton(window, QStringLiteral("window-close"))));
+            click(window, closeButton);
+            QTRY_COMPARE(pageStack->property("depth").toInt(), 1);
         }
         QVERIFY(libraryPage->setProperty("tab", 4)); // collections (empty)
         QTest::qWait(200);
@@ -381,6 +439,59 @@ private Q_SLOTS:
         QTRY_VERIFY(window->findChild<QObject *>(QStringLiteral("nowPlayingPage")));
         player.setRate(1.5);
         QTRY_VERIFY_WITH_TIMEOUT(player.position() > 300, 3000);
+
+        // Statistics: a 20-minute listening session today shows up in the
+        // chart and the "most listened" list, which opens the book.
+        {
+            QSqlDatabase sql = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("stats"));
+            sql.setDatabaseName(library.getDatabasePath());
+            QVERIFY(sql.open());
+            QSqlQuery q(sql);
+            q.prepare(QStringLiteral("INSERT INTO sessions (book_id, started_at, ended_at, start_position_ms, end_position_ms, listened_ms) "
+                                     "VALUES (?, ?, ?, 0, 1200000, 1200000)"));
+            const qint64 start = QDateTime::currentMSecsSinceEpoch() - 1200000;
+            q.addBindValue(m4bId);
+            q.addBindValue(start);
+            q.addBindValue(start + 1200000);
+            QVERIFY(q.exec());
+        }
+        QSqlDatabase::removeDatabase(QStringLiteral("stats"));
+        QVERIFY(QMetaObject::invokeMethod(window, "showStats"));
+        QObject *statsPage = nullptr;
+        QTRY_VERIFY((statsPage = window->findChild<QObject *>(QStringLiteral("statsPage"))));
+        QTRY_VERIFY(!layers->property("busy").toBool());
+        QQuickItem *dailyChart = nullptr;
+        QTRY_VERIFY((dailyChart = window->findChild<QQuickItem *>(QStringLiteral("dailyChart"))));
+        QTRY_VERIFY(dailyChart->isVisible() && dailyChart->width() > 100 && dailyChart->height() > 50);
+        screenshot(window, QStringLiteral("stats"));
+        QQuickItem *statsRow = nullptr;
+        QTRY_VERIFY((statsRow = visibleItem(window->contentItem(), QStringLiteral("statsBookRow"))));
+        click(window, statsRow);
+        QTRY_COMPARE(layers->property("depth").toInt(), 1);
+        QTRY_VERIFY(std::ranges::any_of(window->findChildren<QObject *>(QStringLiteral("bookDetailsPage")), [&](QObject *p) {
+            return p->property("bookId").toLongLong() == m4bId;
+        }));
+
+        // Export, then import the same file: it all matches and nothing changes.
+        QTemporaryDir exportDir;
+        const QUrl exportUrl = QUrl::fromLocalFile(exportDir.filePath(QStringLiteral("export.json")));
+        QCOMPARE(library.exportTo(exportUrl), QString());
+        const auto plan = library.previewImport(exportUrl);
+        QVERIFY2(!plan.contains(QStringLiteral("error")), qPrintable(plan.value(QStringLiteral("error")).toString()));
+        QVERIFY(plan.value(QStringLiteral("booksInFile")).toInt() >= 1);
+        QCOMPARE(plan.value(QStringLiteral("matched")), plan.value(QStringLiteral("booksInFile")));
+        QCOMPARE(plan.value(QStringLiteral("changes")).toInt(), 0);
+        QCOMPARE(library.applyImport(), QString());
+        QVERIFY(!library.applyImport().isEmpty()); // the plan is used once
+        QFile bad(exportDir.filePath(QStringLiteral("bad.json")));
+        QVERIFY(bad.open(QIODevice::WriteOnly));
+        bad.write("{ not an export");
+        bad.close();
+        QVERIFY(library.previewImport(QUrl::fromLocalFile(bad.fileName())).contains(QStringLiteral("error")));
+        const QUrl backupUrl = QUrl::fromLocalFile(exportDir.filePath(QStringLiteral("backup.db")));
+        QCOMPARE(library.backupDatabase(backupUrl), QString());
+        QCOMPARE(library.backupDatabase(backupUrl), QString()); // replacing an existing backup works
+        QVERIFY(QFileInfo(backupUrl.toLocalFile()).size() > 0);
 
         // Opening another page removes the details page (destroyed shortly after).
         QVERIFY(QMetaObject::invokeMethod(window, "showReview"));

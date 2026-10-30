@@ -20,6 +20,15 @@ Kirigami.Page {
     property bool listView: false
 
     objectName: "booksPage"
+
+    actions: [
+        Kirigami.Action {
+            icon.name: "window-close"
+            text: i18nc("@action:button", "Close")
+            displayHint: Kirigami.DisplayHint.IconOnly
+            onTriggered: applicationWindow().closePage(page)
+        }
+    ]
     padding: 0
     title: name
 

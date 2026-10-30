@@ -18,6 +18,7 @@ Kirigami.Page {
     signal bookRequested(var bookId)
     signal reviewRequested()
     signal settingsRequested()
+    signal statsRequested()
     signal nowPlayingRequested()
     /// kind: 1 author, 3 series, 4 collection (BookListModel scope kinds)
     signal groupRequested(int kind, var groupId, string name)
@@ -63,6 +64,11 @@ Kirigami.Page {
             text: i18nc("@action:button", "Open Files…")
             tooltip: i18nc("@info:tooltip", "Play files without adding them to the library")
             onTriggered: fileDialog.open()
+        },
+        Kirigami.Action {
+            icon.name: "office-chart-bar"
+            text: i18nc("@action:button", "Statistics")
+            onTriggered: page.statsRequested()
         },
         Kirigami.Action {
             icon.name: "configure"

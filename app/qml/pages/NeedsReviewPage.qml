@@ -24,6 +24,12 @@ Kirigami.ScrollablePage {
 
     actions: [
         Kirigami.Action {
+            icon.name: "window-close"
+            text: i18nc("@action:button", "Close")
+            displayHint: Kirigami.DisplayHint.IconOnly
+            onTriggered: applicationWindow().closePage(page)
+        },
+        Kirigami.Action {
             icon.name: "merge"
             text: i18nc("@action:button", "Merge Selected")
             tooltip: i18nc("@info:tooltip", "The selected books are one book: merge them into the first one selected")

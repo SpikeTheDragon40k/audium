@@ -8,22 +8,33 @@ All builds run locally; GitHub hosts only the code and the Releases (see ARCHITE
 
 ## Current status
 
-- **Done:** environment check and design docs; M0, M1 and M2 on Linux (2026-10-29); M3 on Linux (2026-10-30, reviewed); **M4 on Linux** (2026-10-30, reviewed).
-- **Next:** Milestone 5 (insights and portability).
+- **Done:** environment check and design docs; M0, M1 and M2 on Linux (2026-10-29); M3 on Linux (2026-10-30, reviewed); **M4 on Linux** (2026-10-30, reviewed); **M5 on Linux** (2026-10-30, reviewed).
+- **Next:** Milestone 6 (desktop integration).
 - **Remote:** private GitHub repo `SpikeTheDragon40k/audium`, used for code and Releases only (no GitHub Actions).
 
 ## Resume here (updated 2026-10-30)
 
 State:
-- Branch `main`. M0–M4 are committed and pushed (M4 reviewed and tried by the maintainer on 2026-10-30).
-- `scripts/check.sh` passes.
+- Branch `main`. M0–M5 are committed and pushed (M5 reviewed and tried by the maintainer on 2026-10-30).
+- `scripts/check.sh` passes. The maintainer's database is at schema 2 (no M5 migration).
 
-Next: Milestone 5 (Insights and portability):
-1. Stats queries in `audium-storage` from `sessions`: listened today, this week, this month and all time; current streak (consecutive days with listening); books finished; per-book totals; daily totals for a chart. Unit tests on synthetic sessions, including day boundaries and local time zones.
-2. `StatsModel` (bridge) and a Stats page (tiles plus a simple bar chart in QML Shapes/Canvas).
-3. JSON export: versioned schema (`schema_version`); progress, bookmarks, sessions, overrides, settings, collections. Books are identified by fingerprint (normalized title + author + total duration + partial hashes).
-4. JSON import: match by fingerprint, preview conflicts (newer progress, duplicate bookmarks), then apply in one transaction. Round-trip test.
-5. Settings → back up the database now (`VACUUM INTO`, with a file dialog).
+How the work goes (keep doing this):
+- One milestone at a time. At the end: `scripts/check.sh`, update ROADMAP and ARCHITECTURE, then **stop for the maintainer's review**. Commit (no AI trailer) and push only when they say so.
+- The maintainer tries every milestone on their real library (`~/Music`). Real-use bugs found so far were UI-level (blank views, pages that couldn't be closed). For every UI change, test what a person does: click with the mouse in `test_bridge` (move first, wait for animations), and check sizes, not just that objects exist.
+- Scripted file edits go through the checked helper: every pattern must match exactly once. Unchecked edits once silently did nothing.
+- `AUDIUM_SCREENSHOT_DIR=<dir> QT_QPA_PLATFORM=offscreen build/bin/test_bridge` saves screenshots to look at layouts.
+
+Next: Milestone 6 (Desktop integration):
+1. MPRIS2 over QtDBus (`app/src/integration/`):
+   - title = chapter, album = book, artist = author, cover art, position, rate;
+   - next/previous = chapter;
+   - Play/Pause also extends a fading sleep timer (`session.userActivity()`).
+   - Test with `playerctl`/`busctl` against the running app, plus a Qt test that talks to the D-Bus object.
+2. Media keys: through MPRIS (Plasma routes them); check that nothing else is needed.
+3. Notifications (KNotifications): book finished, sleep timer ended. A `.notifyrc` file.
+4. Tray (KStatusNotifierItem): play/pause, current book, quit. Closing the window minimizes to the tray while playing (a setting).
+5. Windows SMTC: an isolated file behind the same integration interface; compiled on Windows only (unverifiable here).
+6. Every integration may fail independently without affecting playback (CLAUDE.md §8).
 
 ## M0 — Foundation
 - Cargo workspace with the 5 crates; `rust-toolchain.toml` (1.99.1).
@@ -336,6 +347,46 @@ Open / known limitations:
   - conflict preview before applying;
   - a round-trip test.
 - Settings → database backup.
+
+### M5 status (2026-10-30)
+Done and verified locally with `scripts/check.sh` (all steps pass).
+
+What's in it:
+- **Statistics page** (library toolbar → Statistics; a layer with a back button):
+  - tiles for today, this week, this month, all time, current streak (best streak in its tooltip), and books finished (total and this month);
+  - a bar chart of listening per day for the last 30 days, with Monday labels, a scale guide and a tooltip per bar;
+  - "Most listened" books, which open the book.
+- **Settings → Your Data:**
+  - **Export…:** JSON with progress, finished state, bookmarks, listening history, edits, speeds, collections and settings.
+  - **Import…:** a preview dialog with what will change, what is kept because yours is newer, and which books aren't in the library. Apply, or cancel without changes.
+  - **Back Up Database…:** a complete copy of the library database.
+
+Tests:
+- **Rust:**
+  - calendar arithmetic (leap years, week and month starts; a round trip over ±2,000 years);
+  - period totals, streaks (including "not played yet today" and across month boundaries);
+  - SQL splitting of sessions at local midnight, which passes under UTC, New York, Kolkata (+5:30), Auckland (+13) and Rome;
+  - per-book totals and finished dates;
+  - export/import round trip between two "computers" with different paths: hash matching, a title/author/length match, a missing book, newer local progress kept, the plan applied exactly, a re-import changing nothing;
+  - refusal of foreign, newer and damaged files.
+- **Qt:**
+  - the stats page shows a session, its chart is laid out, and a "most listened" row opens the book;
+  - export → preview → apply through `LibraryController` (re-importing your own export changes nothing; a plan applies once; a damaged file gives an error);
+  - backup, including replacing an existing backup.
+- **Looked at:** `AUDIUM_SCREENSHOT_DIR=<dir>` makes `test_bridge` save screenshots; the stats page was checked that way.
+
+Not verified:
+- **Stats with months of real listening history:** only seen with a test session.
+- **An export from one real library imported into another:** only tested with synthetic libraries.
+
+Bugs found by the maintainer during M5 review, fixed:
+- **A book's details panel could not be closed.** Book details, a group's books, Needs Review and Now Playing open as columns beside the library, and in a wide window Kirigami's back button is disabled for columns that are all on screen. Each of these pages now has a Close (×) action, and Escape closes the rightmost column when no layer is open. `test_bridge` opens a book from the grid and closes it by clicking × like a user, then with Escape, and does the same for Now Playing and the author and series pages. The test's clicks now also wait for column and layer animations to stop, as a person would.
+
+Open / known limitations:
+- **A week starts on Monday**, whatever the locale.
+- **Sessions longer than 24 hours** are split only at the first midnight.
+- **A finished book counts once:** if you finish it again, the finished date is updated rather than counting twice.
+- **"Books finished" is all-time and this month;** there's no per-week figure.
 
 ## M6 — Desktop integration
 - Linux: MPRIS2 via QtDBus (also handles media keys); KNotifications.

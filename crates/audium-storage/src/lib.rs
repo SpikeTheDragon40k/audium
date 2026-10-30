@@ -8,7 +8,9 @@ mod migrate;
 pub mod organize;
 pub mod paths;
 pub mod playback;
+pub mod portable;
 pub mod read;
+pub mod stats;
 #[cfg(test)]
 mod tests;
 pub mod write;

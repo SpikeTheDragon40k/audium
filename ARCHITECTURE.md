@@ -217,6 +217,7 @@ There's no async runtime. Rust worker threads never touch QObjects.
 - **Read-only Rust properties:** set with the crate's `set_ro!` macro (assign plus emit if changed).
 - **Kirigami 6.31 rule:** page actions must not be hidden when the page is created, neither by `DisplayHint.AlwaysHide` nor by `visible: false`. Either makes `ActionToolBar` destroy delegates during incubation (Qt warnings). Disable actions instead, or use an `InlineMessage` with an action, like the "Needs review" banner.
 - **Layers:** Settings, Edit Metadata and Split Book open as `pageStack.layers` over the window, with a back button; Escape closes them. As columns, a wide window gave them no way to close. Kirigami 6.31 warns "StackView has detected conflicting anchors" on every layer push, even for a plain page in a minimal standalone file; it's harmless, and that one message is exempted in `test_bridge`.
+- **Closing columns:** book details, group pages, Needs Review and Now Playing are columns beside the library and carry a Close action (`Main.closePage`). In a wide window Kirigami's back button is disabled for columns that are all visible. Escape closes the topmost layer, otherwise the rightmost column.
 - **Pages:** created with `pageStack` as parent and destroyed shortly after removal. Destroying them immediately triggers the same incubation warning when navigating quickly. Now Playing is one persistent instance.
 - **Views fill the page and scroll themselves.** A `Loader` inside a `ScrollView` gets no size, which made the library views blank and unclickable (found in M3).
 - **Tests:** any Qt/QML warning fails `test_bridge`. It loads the UI with an empty and with a full library, checks view sizes, and clicks tiles with real mouse events.
@@ -251,6 +252,21 @@ There's no async runtime. Rust worker threads never touch QObjects.
 - **Writes:** organizing writes from the UI are refused, with a message, while a scan runs instead of blocking. Bookmark writes go through the session's writer.
 - **QML structure:** the library has tabs Home, Books (search, sort, grid, list or bookshelf), Authors, Series and Collections. Reusable views are `BookGrid`, `BookList`, `GroupGrid` and `Bookshelf`. Group pages are `BooksPage`; `EditMetadataPage`, `SplitBookPage` and `NeedsReviewPage` (merge) complete it.
 - **Model rule:** a list model's `rowCount()` must return its real rows, never a `count` property updated after `endResetModel()`. Views read the row count *during* the reset, so they would keep the old number of items. `test_bridge` checks the row count seen at `modelReset`.
+
+## 12b. Statistics and portability (M5)
+- **Statistics:** computed from `sessions`.
+  - SQLite works out each session's *local* day (`'localtime'`, so the system time zone and daylight saving time apply) and splits a session that crosses local midnight between the two days.
+  - The pure `audium_core::stats` does the calendar arithmetic and sums: today, the week from Monday, the calendar month, all time, the current streak (today, or yesterday if nothing has been played yet today), the best streak, and the last N days.
+  - Books finished come from `progress.finished_at`.
+- **Export (`audium-storage::portable`):** a versioned JSON document (`format: "audium-export"`, `schema_version: 1`) with every book that has user data, plus collections and settings. Installation-specific settings (`scan_rules_version`) are left out.
+  - Books are identified by a fingerprint: normalized title, first author, total duration, and the partial hashes of their tracks. Paths are never used.
+  - Positions refer to tracks by index plus hash.
+- **Import:**
+  - **Matching:** a shared track hash first; otherwise the same title and author with the length within 1% (at least 5 s), closest length winning.
+  - **`plan_import`:** decides everything without writing. Newer progress wins; bookmarks are added unless one exists within 1 s with the same title; sessions are added unless one has the same start; overrides take the newer one per field; speed only where none is set; collections are created or extended; settings are overwritten.
+  - **Preview and apply:** the UI shows the plan's summary, and `apply_import` executes exactly that plan in one transaction. Books with new overrides are then re-read.
+  - **Refused files:** foreign, damaged and newer-format files are refused with a clear message, as are files over 200 MB.
+- **Database backup:** `VACUUM INTO` a temporary file next to the target, then a rename. Exports are also written to a temporary file and renamed, so a failure never leaves half a file.
 
 ## 13. Platform integration
 

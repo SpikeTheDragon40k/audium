@@ -35,3 +35,14 @@ pub fn playback_path_bytes(path: &Path) -> Vec<u8> {
         path.to_string_lossy().into_owned().into_bytes()
     }
 }
+
+/// A QVariantMap from (key, value) pairs.
+pub fn variant_map(
+    entries: Vec<(&str, cxx_qt_lib::QVariant)>,
+) -> cxx_qt_lib::QMap<cxx_qt_lib::QMapPair_QString_QVariant> {
+    let mut m = cxx_qt_lib::QMap::<cxx_qt_lib::QMapPair_QString_QVariant>::default();
+    for (k, v) in entries {
+        m.insert(QString::from(k), v);
+    }
+    m
+}

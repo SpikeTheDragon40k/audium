@@ -9,6 +9,7 @@ pub mod natural;
 pub mod position;
 pub mod progress;
 pub mod sleep;
+pub mod stats;
 pub mod text;
 
 pub use ids::{BookId, BookUid, LibraryId, TrackId};

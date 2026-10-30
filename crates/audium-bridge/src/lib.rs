@@ -25,3 +25,4 @@ mod convert;
 pub mod group_list_model;
 pub mod library_controller;
 pub mod playback_session;
+pub mod stats_model;

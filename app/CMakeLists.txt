@@ -24,6 +24,7 @@ qt_add_qml_module(audium_ui
         qml/pages/BooksPage.qml
         qml/pages/EditMetadataPage.qml
         qml/pages/SplitBookPage.qml
+        qml/pages/StatsPage.qml
         qml/components/MiniPlayer.qml
         qml/components/BookCover.qml
         qml/components/BookTile.qml
@@ -32,6 +33,7 @@ qt_add_qml_module(audium_ui
         qml/components/BookList.qml
         qml/components/GroupGrid.qml
         qml/components/Bookshelf.qml
+        qml/components/DailyChart.qml
         qml/components/SleepTimerButton.qml
         qml/components/TimeFormat.js
         qml/components/ReviewReasons.js

@@ -1075,3 +1075,351 @@ mod organizing {
         assert_eq!(dirs, [std::path::PathBuf::from("/books/s")]);
     }
 }
+
+mod statistics {
+    use super::*;
+    use crate::playback::{self, SessionRecord};
+    use crate::stats;
+
+    /// Epoch ms of local midnight starting `day`, as SQLite computes it.
+    fn local_midnight(db: &Database, day: &str) -> i64 {
+        db.conn()
+            .query_row(
+                "SELECT CAST(strftime('%s', ?1, 'utc') AS INTEGER) * 1000",
+                [day],
+                |r| r.get(0),
+            )
+            .expect("q")
+    }
+
+    fn session(db: &Database, book: BookId, start: i64, end: i64) {
+        let s = SessionRecord {
+            book,
+            started_at: start,
+            ended_at: end,
+            start_position_ms: 0,
+            end_position_ms: end - start,
+            listened_ms: end - start,
+        };
+        playback::record_session(db.conn(), &s).expect("session");
+    }
+
+    fn library(db: &mut Database) -> (BookId, BookId) {
+        let lib = write::add_library(db, Path::new("/books")).expect("lib");
+        write::apply(
+            db,
+            lib,
+            &ScanChanges {
+                books: vec![
+                    book(
+                        BookTarget::New(uid(1)),
+                        "Long",
+                        &["A"],
+                        vec![track("/books/l.m4b", 100)],
+                    ),
+                    book(
+                        BookTarget::New(uid(2)),
+                        "Short",
+                        &["A"],
+                        vec![track("/books/s.m4b", 100)],
+                    ),
+                ],
+                ..Default::default()
+            },
+        )
+        .expect("apply");
+        (book_id_by_title(db, "Long"), book_id_by_title(db, "Short"))
+    }
+
+    #[test]
+    fn sessions_are_split_at_local_midnight() {
+        let (_dir, mut db) = db();
+        let (long, short) = library(&mut db);
+        let midnight = local_midnight(&db, "2026-10-30");
+        // 10 minutes before and 20 after local midnight.
+        session(&db, long, midnight - 600_000, midnight + 1_200_000);
+        // Same day, later.
+        session(&db, short, midnight + 3_600_000, midnight + 3_900_000);
+        let mut days = stats::listening_per_day(db.conn()).expect("days");
+        days.sort();
+        let d = |s| audium_core::stats::Date::parse(s).expect("date");
+        assert_eq!(
+            days,
+            [(d("2026-10-29"), 600_000), (d("2026-10-30"), 1_500_000)]
+        );
+    }
+
+    #[test]
+    fn per_book_totals_and_finished_dates() {
+        let (_dir, mut db) = db();
+        let (long, short) = library(&mut db);
+        let midnight = local_midnight(&db, "2026-10-30");
+        session(&db, long, midnight + 1_000, midnight + 7_201_000);
+        session(&db, long, midnight + 8_000_000, midnight + 8_600_000);
+        session(&db, short, midnight + 9_000_000, midnight + 9_060_000);
+        let totals = stats::per_book_totals(db.conn(), 10).expect("totals");
+        assert_eq!(
+            totals
+                .iter()
+                .map(|t| (t.title.as_str(), t.listened_ms, t.sessions))
+                .collect::<Vec<_>>(),
+            [("Long", 7_800_000, 2), ("Short", 60_000, 1)]
+        );
+        assert_eq!(stats::per_book_totals(db.conn(), 1).expect("top").len(), 1);
+
+        playback::mark_finished(db.conn(), short, None, 100, 100, midnight + 9_100_000)
+            .expect("finish");
+        let finished = stats::finished_dates(db.conn()).expect("finished");
+        assert_eq!(
+            finished,
+            [audium_core::stats::Date::parse("2026-10-30").expect("d")]
+        );
+        assert!(stats::today(db.conn()).expect("today").is_some());
+    }
+}
+
+mod portability {
+    use super::*;
+    use crate::{organize, playback, portable};
+
+    fn hashed(path: &str, hash: u8, ms: i64) -> TrackWrite {
+        TrackWrite {
+            partial_hash: Some(vec![hash; 16]),
+            ..track(path, ms)
+        }
+    }
+
+    /// The same three books; `prefix` changes every path. `hashes`: whether
+    /// the third book's tracks keep their hashes (false = match by title).
+    fn library(db: &mut Database, prefix: &str, third_hashed: bool, with_fourth: bool) {
+        let lib = write::add_library(db, Path::new(prefix)).expect("lib");
+        let mut third = book(
+            BookTarget::New(uid(3)),
+            "Third Book",
+            &["Cara C"],
+            vec![track(&format!("{prefix}/c.m4b"), 600_000)],
+        );
+        if third_hashed {
+            third.tracks[0].partial_hash = Some(vec![3; 16]);
+        }
+        let mut books = vec![
+            book(
+                BookTarget::New(uid(1)),
+                "First Book",
+                &["Ann A"],
+                vec![
+                    hashed(&format!("{prefix}/a1.mp3"), 11, 1000),
+                    hashed(&format!("{prefix}/a2.mp3"), 12, 2000),
+                ],
+            ),
+            book(
+                BookTarget::New(uid(2)),
+                "Second Book",
+                &["Bob B"],
+                vec![hashed(&format!("{prefix}/b.m4b"), 2, 5000)],
+            ),
+            third,
+        ];
+        if with_fourth {
+            books.push(book(
+                BookTarget::New(uid(4)),
+                "Only In A",
+                &["Dee D"],
+                vec![hashed(&format!("{prefix}/d.m4b"), 4, 100)],
+            ));
+        }
+        write::apply(
+            db,
+            lib,
+            &ScanChanges {
+                books,
+                ..Default::default()
+            },
+        )
+        .expect("apply");
+    }
+
+    /// (progress (position, finished), bookmarks, sessions, speed, overrides)
+    type UserData = (
+        Option<(i64, bool)>,
+        usize,
+        usize,
+        Option<f64>,
+        Vec<(String, String)>,
+    );
+
+    fn user_data(db: &Database, title: &str) -> UserData {
+        let id = book_id_by_title(db, title);
+        let p = playback::progress(db.conn(), id)
+            .expect("p")
+            .map(|p| (p.book_position_ms, p.finished));
+        let bookmarks = organize::bookmarks(db.conn(), id).expect("b").len();
+        let sessions: i64 = db
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM sessions WHERE book_id = ?1",
+                [id.0],
+                |r| r.get(0),
+            )
+            .expect("s");
+        let mut ov: Vec<(String, String)> = organize::overrides(db.conn(), id)
+            .expect("o")
+            .into_iter()
+            .collect();
+        ov.sort();
+        (
+            p,
+            bookmarks,
+            sessions as usize,
+            playback::book_speed(db.conn(), id).expect("speed"),
+            ov,
+        )
+    }
+
+    #[test]
+    fn export_import_round_trip_with_conflicts() {
+        // Library A, with user data.
+        let (_a_dir, mut a) = db();
+        library(&mut a, "/home/me/books", true, true);
+        let first = book_id_by_title(&a, "First Book");
+        let second = book_id_by_title(&a, "Second Book");
+        let third = book_id_by_title(&a, "Third Book");
+        let fourth = book_id_by_title(&a, "Only In A");
+        let t1 = read::tracks(a.conn(), first).expect("t");
+        playback::save_progress(a.conn(), first, Some(t1[1].id), 500, 1500, 1_000).expect("p");
+        playback::mark_finished(a.conn(), second, None, 5000, 5000, 2_000).expect("finished");
+        playback::save_progress(a.conn(), third, None, 100, 100, 10_000).expect("p");
+        playback::save_progress(a.conn(), fourth, None, 50, 50, 1_000).expect("p");
+        organize::add_bookmark(a.conn(), first, Some(t1[1].id), 400, 1400, 3).expect("bm");
+        organize::update_bookmark(a.conn(), 1, "Twist", "a note", 4).expect("bm");
+        playback::record_session(
+            a.conn(),
+            &playback::SessionRecord {
+                book: first,
+                started_at: 100,
+                ended_at: 9_100,
+                start_position_ms: 0,
+                end_position_ms: 1500,
+                listened_ms: 9_000,
+            },
+        )
+        .expect("s");
+        organize::set_override(a.conn(), first, "title", "First Book (Edited)", 5).expect("ov");
+        playback::set_book_speed(a.conn(), first, 1.25).expect("speed");
+        let favs = organize::create_collection(a.conn(), "Favourites", 6).expect("c");
+        organize::add_to_collection(a.conn(), favs, second).expect("c");
+        organize::add_to_collection(a.conn(), favs, first).expect("c");
+        playback::set_setting(a.conn(), "skip_back_ms", "10000").expect("setting");
+        playback::set_setting(a.conn(), "scan_rules_version", "3").expect("setting");
+
+        let doc = portable::export(a.conn(), "test", 99).expect("export");
+        assert_eq!(doc.books.len(), 4);
+        assert!(
+            !doc.settings.contains_key("scan_rules_version"),
+            "installation-specific"
+        );
+        let json = portable::to_json(&doc).expect("json");
+        let parsed = portable::from_json(&json).expect("parse");
+        assert_eq!(parsed, doc, "the JSON round-trips");
+
+        // Library B: same books at other paths; the third book has no hashes;
+        // "Only In A" is missing; B has newer progress for the third book.
+        let (_b_dir, mut b) = db();
+        library(&mut b, "/mnt/other", false, false);
+        let b_third = book_id_by_title(&b, "Third Book");
+        playback::save_progress(b.conn(), b_third, None, 300, 300, 20_000).expect("newer progress");
+
+        let plan = portable::plan_import(b.conn(), &parsed).expect("plan");
+        let s = plan.summary.clone();
+        assert_eq!((s.books_in_file, s.matched), (4, 3));
+        assert_eq!(s.unmatched, ["Only In A"]);
+        assert_eq!(
+            (s.progress_updated, s.progress_kept),
+            (2, 1),
+            "B's newer progress on Third Book is kept"
+        );
+        assert_eq!(
+            (
+                s.bookmarks_added,
+                s.sessions_added,
+                s.overrides_updated,
+                s.speeds_set
+            ),
+            (1, 1, 1, 1)
+        );
+        assert_eq!(
+            (
+                s.collections_created,
+                s.collection_entries_added,
+                s.settings_changed
+            ),
+            (1, 2, 1)
+        );
+        assert_eq!(
+            plan.books_with_new_overrides,
+            [book_id_by_title(&b, "First Book")]
+        );
+
+        // Previewing changes nothing.
+        assert_eq!(user_data(&b, "First Book").0, None);
+        portable::apply_import(&mut b, &plan).expect("apply");
+
+        let first_b = user_data(&b, "First Book");
+        assert_eq!(
+            first_b,
+            user_data(&a, "First Book"),
+            "progress, bookmark, session, speed, override"
+        );
+        assert_eq!(
+            user_data(&b, "Second Book").0,
+            Some((5000, true)),
+            "finished state"
+        );
+        assert_eq!(
+            user_data(&b, "Third Book").0,
+            Some((300, false)),
+            "newer local progress kept"
+        );
+        // Progress points at the matching track (found by hash, not index).
+        let p = playback::progress(b.conn(), book_id_by_title(&b, "First Book"))
+            .expect("p")
+            .expect("some");
+        let b_tracks = read::tracks(b.conn(), book_id_by_title(&b, "First Book")).expect("t");
+        assert_eq!(p.track_id, Some(b_tracks[1].id));
+        let coll = read::list_groups(b.conn(), read::GroupKind::Collections).expect("groups");
+        assert_eq!(
+            (coll[0].name.as_str(), coll[0].book_count),
+            ("Favourites", 2)
+        );
+        assert_eq!(
+            playback::setting(b.conn(), "skip_back_ms")
+                .expect("s")
+                .as_deref(),
+            Some("10000")
+        );
+        assert_eq!(
+            playback::setting(b.conn(), "scan_rules_version").expect("s"),
+            None
+        );
+
+        // Importing the same file again changes nothing.
+        let again = portable::plan_import(b.conn(), &parsed).expect("plan again");
+        assert_eq!(again.summary.changes(), 0, "{:?}", again.summary);
+    }
+
+    #[test]
+    fn empty_library_exports_settings_only() {
+        let (_dir, db) = db();
+        playback::set_setting(db.conn(), "skip_forward_ms", "45000").expect("setting");
+        let doc = portable::export(db.conn(), "test", 1).expect("export");
+        assert!(doc.books.is_empty());
+        assert_eq!(
+            doc.settings.get("skip_forward_ms").map(String::as_str),
+            Some("45000")
+        );
+        assert_eq!(
+            (doc.format.as_str(), doc.schema_version),
+            ("audium-export", portable::SCHEMA_VERSION)
+        );
+    }
+}

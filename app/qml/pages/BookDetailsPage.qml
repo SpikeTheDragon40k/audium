@@ -48,6 +48,12 @@ Kirigami.ScrollablePage {
 
     actions: [
         Kirigami.Action {
+            icon.name: "window-close"
+            text: i18nc("@action:button", "Close")
+            displayHint: Kirigami.DisplayHint.IconOnly
+            onTriggered: applicationWindow().closePage(page)
+        },
+        Kirigami.Action {
             icon.name: "document-edit"
             text: i18nc("@action:button", "Edit Metadata…")
             enabled: details.valid

@@ -10,11 +10,11 @@ use std::time::{Duration, Instant};
 use audium_core::{BookId, TrackId};
 use audium_library::{Phase, ScanError, ScanOptions, ScanProgress, scan_library};
 use audium_storage::{Database, read, write};
-use audium_storage::{now_ms, organize};
+use audium_storage::{now_ms, organize, portable};
 use cxx_qt::{CxxQtType, Threading};
-use cxx_qt_lib::{QList, QString, QStringList, QUrl, QVariant};
+use cxx_qt_lib::{QList, QMap, QMapPair_QString_QVariant, QString, QStringList, QUrl, QVariant};
 
-use crate::convert::{qs, string_list};
+use crate::convert::{qs, string_list, variant_map};
 
 #[cxx_qt::bridge]
 pub mod qobject {
@@ -27,6 +27,8 @@ pub mod qobject {
         type QUrl = cxx_qt_lib::QUrl;
         include!("cxx-qt-lib/qlist.h");
         type QList_QVariant = cxx_qt_lib::QList<cxx_qt_lib::QVariant>;
+        include!("cxx-qt-lib/qmap.h");
+        type QMap_QString_QVariant = cxx_qt_lib::QMap<cxx_qt_lib::QMapPair_QString_QVariant>;
     }
 
     extern "RustQt" {
@@ -141,6 +143,32 @@ pub mod qobject {
             collection: i64,
             book_id: i64,
         ) -> QString;
+
+        /// Writes progress, bookmarks, history, edits, collections and
+        /// settings to a JSON file. Returns an error message or "".
+        #[qinvokable]
+        #[cxx_name = "exportTo"]
+        fn export_to(self: Pin<&mut LibraryController>, url: &QUrl) -> QString;
+
+        /// Reads an export file and plans the import without changing
+        /// anything. Returns {error} or the plan's summary: {booksInFile,
+        /// matched, unmatched (titles), progressUpdated, progressKept,
+        /// bookmarksAdded, sessionsAdded, overridesUpdated, overridesKept,
+        /// speedsSet, collectionsCreated, collectionEntriesAdded,
+        /// settingsChanged, changes}.
+        #[qinvokable]
+        #[cxx_name = "previewImport"]
+        fn preview_import(self: Pin<&mut LibraryController>, url: &QUrl) -> QMap_QString_QVariant;
+
+        /// Applies the last previewed import. Returns an error message or "".
+        #[qinvokable]
+        #[cxx_name = "applyImport"]
+        fn apply_import(self: Pin<&mut LibraryController>) -> QString;
+
+        /// Copies the library database to a file (a consistent snapshot).
+        #[qinvokable]
+        #[cxx_name = "backupDatabase"]
+        fn backup_database(self: Pin<&mut LibraryController>, url: &QUrl) -> QString;
     }
 
     impl cxx_qt::Threading for LibraryController {}
@@ -166,6 +194,23 @@ pub struct LibraryControllerRust {
     cancel: Arc<AtomicBool>,
     /// Folders to re-read once the running scan has finished.
     pending_dirs: Vec<PathBuf>,
+    /// The import shown by `previewImport`, applied by `applyImport`.
+    pending_import: Option<portable::ImportPlan>,
+}
+
+fn local_path(url: &QUrl) -> Option<PathBuf> {
+    url.to_local_file()
+        .map(|f| PathBuf::from(String::from(&f)))
+        .filter(|p| p.is_absolute())
+}
+
+/// Writes a file via a temporary sibling, so a failure never leaves half a file.
+fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".part");
+    let tmp = PathBuf::from(tmp);
+    std::fs::write(&tmp, bytes)?;
+    std::fs::rename(&tmp, path)
 }
 
 /// Ids from a QML array (numbers arrive as doubles or integers).
@@ -425,6 +470,106 @@ impl qobject::LibraryController {
 
     fn remove_from_collection(self: Pin<&mut Self>, collection: i64, book_id: i64) -> QString {
         self.organize(|db| organize::remove_from_collection(db.conn(), collection, BookId(book_id)))
+    }
+
+    fn export_to(self: Pin<&mut Self>, url: &QUrl) -> QString {
+        let Some(path) = local_path(url) else {
+            return qs("Choose a local file.");
+        };
+        let Some(db) = self.rust().db.as_ref() else {
+            return qs("The library database is not open.");
+        };
+        let result = portable::export(db.conn(), audium_core::VERSION, now_ms())
+            .and_then(|doc| portable::to_json(&doc))
+            .map_err(|e| e.to_string())
+            .and_then(|json| write_atomically(&path, &json).map_err(|e| e.to_string()));
+        match result {
+            Ok(()) => QString::default(),
+            Err(e) => qs(&format!("Export failed: {e}")),
+        }
+    }
+
+    fn preview_import(mut self: Pin<&mut Self>, url: &QUrl) -> QMap<QMapPair_QString_QVariant> {
+        self.as_mut().rust_mut().pending_import = None;
+        let error = |m: String| variant_map(vec![("error", QVariant::from(&qs(&m)))]);
+        let Some(path) = local_path(url) else {
+            return error("Choose a local file.".into());
+        };
+        let bytes = match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(e) => return error(format!("Cannot read {}: {e}", path.display())),
+        };
+        let Some(db) = self.rust().db.as_ref() else {
+            return error("The library database is not open.".into());
+        };
+        let plan = match portable::from_json(&bytes)
+            .and_then(|doc| portable::plan_import(db.conn(), &doc))
+        {
+            Ok(p) => p,
+            Err(e) => return error(e.to_string()),
+        };
+        let s = &plan.summary;
+        let n = |v: usize| QVariant::from(&i64::try_from(v).unwrap_or(i64::MAX));
+        let summary = variant_map(vec![
+            ("booksInFile", n(s.books_in_file)),
+            ("matched", n(s.matched)),
+            ("unmatched", QVariant::from(&string_list(&s.unmatched))),
+            ("progressUpdated", n(s.progress_updated)),
+            ("progressKept", n(s.progress_kept)),
+            ("bookmarksAdded", n(s.bookmarks_added)),
+            ("sessionsAdded", n(s.sessions_added)),
+            ("overridesUpdated", n(s.overrides_updated)),
+            ("overridesKept", n(s.overrides_kept)),
+            ("speedsSet", n(s.speeds_set)),
+            ("collectionsCreated", n(s.collections_created)),
+            ("collectionEntriesAdded", n(s.collection_entries_added)),
+            ("settingsChanged", n(s.settings_changed)),
+            ("changes", n(s.changes())),
+        ]);
+        self.as_mut().rust_mut().pending_import = Some(plan);
+        summary
+    }
+
+    fn apply_import(mut self: Pin<&mut Self>) -> QString {
+        let Some(plan) = self.as_mut().rust_mut().pending_import.take() else {
+            return qs("Nothing to import: preview a file first.");
+        };
+        let reread = plan.books_with_new_overrides.clone();
+        let error = self
+            .as_mut()
+            .organize(|db| portable::apply_import(db, &plan));
+        if error.is_empty() {
+            self.reread_books(&reread);
+        }
+        error
+    }
+
+    fn backup_database(self: Pin<&mut Self>, url: &QUrl) -> QString {
+        let Some(path) = local_path(url) else {
+            return qs("Choose a local file.");
+        };
+        let Some(db) = self.rust().db.as_ref() else {
+            return qs("The library database is not open.");
+        };
+        let Some(target) = path.to_str() else {
+            return qs("The backup path must be valid UTF-8.");
+        };
+        // VACUUM INTO refuses existing files; the file dialog already asked
+        // about replacing it, so write next to it and swap.
+        let tmp = format!("{target}.part");
+        let _ = std::fs::remove_file(&tmp);
+        let result = db
+            .conn()
+            .execute("VACUUM INTO ?1", [&tmp])
+            .map_err(|e| e.to_string())
+            .and_then(|_| std::fs::rename(&tmp, &path).map_err(|e| e.to_string()));
+        match result {
+            Ok(()) => QString::default(),
+            Err(e) => {
+                let _ = std::fs::remove_file(&tmp);
+                qs(&format!("Backup failed: {e}"))
+            }
+        }
     }
 
     fn set_error(mut self: Pin<&mut Self>, message: String) {

@@ -30,6 +30,18 @@ Kirigami.ApplicationWindow {
         return page
     }
 
+    /// Closes a column page (book details, a group's books, review, Now
+    /// Playing) and the pages to its right. In a wide window Kirigami gives
+    /// such columns no working back button, so they carry a Close action.
+    function closePage(page) {
+        for (let i = 1; i < pageStack.depth; ++i) {
+            if (pageStack.get(i) === page) {
+                pageStack.pop(pageStack.get(i - 1))
+                return
+            }
+        }
+    }
+
     function showBook(bookId, fromPage) {
         const page = pushAfter(fromPage || libraryPage, bookDetailsComponent, {
             bookId: bookId,
@@ -65,6 +77,20 @@ Kirigami.ApplicationWindow {
             revision: Qt.binding(() => root.dataRevision)
         })
         page.done.connect(() => pageStack.layers.pop())
+    }
+
+    function showStats() {
+        if (pageStack.layers.depth > 1) {
+            return
+        }
+        const page = pageStack.layers.push(statsComponent, {
+            library: root.library,
+            revision: Qt.binding(() => root.dataRevision)
+        })
+        page.bookRequested.connect(id => {
+            pageStack.layers.pop()
+            root.showBook(id, libraryPage)
+        })
     }
 
     function addBookmark() {
@@ -117,6 +143,7 @@ Kirigami.ApplicationWindow {
         revision: root.dataRevision
         onBookRequested: bookId => root.showBook(bookId, libraryPage)
         onGroupRequested: (kind, id, name) => root.showGroup(kind, id, name, libraryPage)
+        onStatsRequested: root.showStats()
         onReviewRequested: root.showReview()
         onSettingsRequested: root.showSettings()
         onNowPlayingRequested: root.showNowPlaying()
@@ -165,6 +192,10 @@ Kirigami.ApplicationWindow {
         id: splitBookComponent
         SplitBookPage {}
     }
+    Component {
+        id: statsComponent
+        StatsPage {}
+    }
 
     // One persistent instance: it keeps its state when closed and reopened.
     NowPlayingPage {
@@ -208,10 +239,17 @@ Kirigami.ApplicationWindow {
         sequence: "B"
         onActivated: root.addBookmark()
     }
-    // Escape closes a layer (settings, editors).
+    // Escape closes a layer (settings, editors, statistics), otherwise the
+    // rightmost column page.
     Shortcut {
         sequence: "Escape"
-        enabled: root.pageStack.layers.depth > 1
-        onActivated: root.pageStack.layers.pop()
+        enabled: root.pageStack.layers.depth > 1 || root.pageStack.depth > 1
+        onActivated: {
+            if (root.pageStack.layers.depth > 1) {
+                root.pageStack.layers.pop()
+            } else {
+                root.closePage(root.pageStack.lastItem)
+            }
+        }
     }
 }
