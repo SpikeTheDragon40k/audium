@@ -113,6 +113,12 @@ Kirigami.ScrollablePage {
                 text: i18n("Each book remembers its own speed.")
                 color: Kirigami.Theme.disabledTextColor
             }
+            QQC2.CheckBox {
+                Kirigami.FormData.label: i18nc("@label", "Closing the window:")
+                text: i18nc("@option:check", "Keep playing in the system tray")
+                checked: page.session.closeToTray
+                onToggled: page.session.closeToTray = checked
+            }
         }
 
         Kirigami.Heading {

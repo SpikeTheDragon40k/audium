@@ -14,8 +14,11 @@ SessionWiring::SessionWiring(PlaybackController *player, PlaybackSession *sessio
     connect(session, &PlaybackSession::loadRequested, this, &SessionWiring::loadPendingBook);
     connect(session, &PlaybackSession::pauseRequested, player, &PlaybackController::pause);
     connect(session, &PlaybackSession::fadeRequested, player, &PlaybackController::setVolumeFactor);
+    // "Play from here" (a chapter or bookmark of the loaded book): seek, and
+    // play if it was paused.
     connect(session, &PlaybackSession::seekRequested, player, [player](qint64 positionMs) {
         player->seekBook(positionMs);
+        player->play();
     });
 
     // Anything loaded behind the session's back (e.g. "Open Files") is not a

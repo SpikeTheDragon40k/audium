@@ -1,5 +1,6 @@
 #include "mpvplaybackbackend.h"
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QLoggingCategory>
@@ -14,6 +15,9 @@ Q_LOGGING_CATEGORY(lcMpv, "audium.playback.mpv")
 namespace
 {
 constexpr qint64 EndOfTrackMarginMs = 500;
+// See m_seekHoldMs.
+constexpr qint64 SeekHoldToleranceMs = 50;
+constexpr qint64 SeekHoldMaxMs = 1500;
 
 enum ObservedProperty : quint64 {
     PropTimePos = 1,
@@ -219,7 +223,21 @@ void MpvPlaybackBackend::handlePropertyChange(const mpv_event &event)
     switch (event.reply_userdata) {
     case PropTimePos:
         if (hasData && m_fileLoaded && m_pendingSeekTrack < 0) {
-            reportTrackPosition(m_playlistPos, secondsToMs(*static_cast<double *>(prop->data)));
+            const qint64 ms = secondsToMs(*static_cast<double *>(prop->data));
+            if (m_seekHoldMs >= 0 && m_seekHoldTrack != m_playlistPos) {
+                m_seekHoldMs = -1; // playback moved to another track
+            }
+            if (m_seekHoldMs >= 0) {
+                // Hold the seek target until playback has really moved on
+                // from it (or, as a safety net, after a while of playing).
+                const bool movedOn = !m_paused && ms >= m_seekHoldMs - SeekHoldToleranceMs;
+                const bool tooLong = !m_paused && QDateTime::currentMSecsSinceEpoch() - m_seekHoldSince > SeekHoldMaxMs;
+                if (!movedOn && !tooLong) {
+                    break;
+                }
+                m_seekHoldMs = -1;
+            }
+            reportTrackPosition(m_playlistPos, ms);
         }
         break;
     case PropDuration:
@@ -236,7 +254,10 @@ void MpvPlaybackBackend::handlePropertyChange(const mpv_event &event)
     case PropPlaylistPos:
         if (hasData) {
             m_playlistPos = int(*static_cast<int64_t *>(prop->data));
-            if (m_playlistPos >= 0 && m_pendingSeekTrack < 0) {
+            // This notification can arrive after the new file was loaded and
+            // a seek into it applied: then the seek's position stands.
+            const bool seekedHere = m_seekHoldMs >= 0 && m_seekHoldTrack == m_playlistPos;
+            if (m_playlistPos >= 0 && m_pendingSeekTrack < 0 && !seekedHere) {
                 reportTrackPosition(m_playlistPos, 0);
             }
         }
@@ -286,8 +307,12 @@ void MpvPlaybackBackend::handleFileLoaded()
         mpv_free_node_contents(&chapters);
     }
 
+    // A file loaded without a pending seek starts at 0; with one, the seek
+    // reports its own target.
+    const bool seeking = m_pendingSeekTrack == m_playlistPos;
     applyPendingSeek();
-    if (m_pendingSeekTrack < 0) {
+    if (!seeking && m_pendingSeekTrack < 0) {
+        m_seekHoldMs = -1;
         reportTrackPosition(m_playlistPos, 0);
     }
     updatePlayState();
@@ -353,9 +378,9 @@ void MpvPlaybackBackend::applyPendingSeek()
     if (length > 0 && offsetMs > length - EndOfTrackMarginMs) {
         offsetMs = std::max<qint64>(0, length - EndOfTrackMarginMs);
     }
-    const QByteArray seconds = QByteArray::number(double(offsetMs) / 1000.0, 'f', 3);
     m_pendingSeekTrack = -1;
-    command({"seek", seconds.constData(), "absolute+exact"});
+    seekInCurrentFile(offsetMs);
+    reportTrackPosition(m_playlistPos, offsetMs);
     if (m_wantPlaying) {
         setFlag("pause", false);
     }
@@ -425,6 +450,7 @@ void MpvPlaybackBackend::backendStop()
     m_wantPlaying = false;
     m_pendingSeekTrack = -1;
     m_awaitTrack = -1;
+    m_seekHoldMs = -1;
     m_entryIndex.clear();
     m_anyTrackLoaded = false;
     m_fileLoaded = false;
@@ -440,8 +466,7 @@ void MpvPlaybackBackend::backendSeek(int trackIndex, qint64 offsetMs)
         return;
     }
     if (trackIndex == m_playlistPos && m_fileLoaded) {
-        const QByteArray seconds = QByteArray::number(double(offsetMs) / 1000.0, 'f', 3);
-        command({"seek", seconds.constData(), "absolute+exact"});
+        seekInCurrentFile(offsetMs);
         return;
     }
     m_pendingSeekTrack = trackIndex;
@@ -460,6 +485,16 @@ void MpvPlaybackBackend::backendSetVolume(double volume)
     // mpv's volume is only ever set from here; it is not mirrored back, so a
     // fade never shows up as a change of the user's volume.
     setDouble("volume", volume);
+}
+
+void MpvPlaybackBackend::seekInCurrentFile(qint64 offsetMs)
+{
+    const QByteArray seconds = QByteArray::number(double(offsetMs) / 1000.0, 'f', 3);
+    if (command({"seek", seconds.constData(), "absolute+exact"})) {
+        m_seekHoldMs = offsetMs;
+        m_seekHoldTrack = m_playlistPos;
+        m_seekHoldSince = QDateTime::currentMSecsSinceEpoch();
+    }
 }
 
 bool MpvPlaybackBackend::command(std::initializer_list<const char *> args)

@@ -22,3 +22,17 @@ audium_add_test(test_session)
 target_link_libraries(test_session PRIVATE Qt::Sql)
 target_link_libraries(test_bridge PRIVATE Qt::Sql)
 set_tests_properties(test_bridge test_playback test_session PROPERTIES FIXTURES_REQUIRED audio_fixtures TIMEOUT 180)
+
+# Desktop integrations, on a private D-Bus session bus (never the user's).
+if(UNIX AND NOT APPLE)
+    find_program(DBUS_RUN_SESSION dbus-run-session REQUIRED)
+    add_executable(test_integration test_integration.cpp)
+    target_compile_definitions(test_integration PRIVATE AUDIUM_FIXTURES_DIR="${AUDIUM_TEST_FIXTURES}")
+    target_link_libraries(test_integration PRIVATE Qt::Test audium_ui audium_uiplugin)
+    add_test(NAME test_integration
+             COMMAND ${DBUS_RUN_SESSION} --config-file=${CMAKE_CURRENT_SOURCE_DIR}/dbus-session.conf -- $<TARGET_FILE:test_integration>)
+    set_tests_properties(test_integration PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        FIXTURES_REQUIRED audio_fixtures
+        TIMEOUT 180)
+endif()

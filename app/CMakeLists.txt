@@ -10,7 +10,18 @@ add_library(audium_ui STATIC
     src/playback/mpvplaybackbackend.h
     src/sessionwiring.cpp
     src/sessionwiring.h
+    src/integration/notifier.cpp
+    src/integration/notifier.h
+    src/integration/tray.cpp
+    src/integration/tray.h
 )
+# Platform integrations. Each is optional at runtime: playback works if
+# all of them fail.
+if(UNIX AND NOT APPLE)
+    target_sources(audium_ui PRIVATE src/integration/mpris.cpp src/integration/mpris.h)
+    target_compile_definitions(audium_ui PUBLIC AUDIUM_HAVE_MPRIS)
+    target_link_libraries(audium_ui PUBLIC Qt::DBus)
+endif()
 qt_add_qml_module(audium_ui
     URI org.audium.app
     OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/qml/org/audium/app
@@ -47,6 +58,9 @@ target_link_libraries(audium_ui PUBLIC
     KF6::I18n
     KF6::I18nQml
     PkgConfig::MPV
+    Qt::Widgets
+    KF6::Notifications
+    KF6::StatusNotifierItem
     audium_bridge_qml
 )
 

@@ -8,15 +8,17 @@ All builds run locally; GitHub hosts only the code and the Releases (see ARCHITE
 
 ## Current status
 
-- **Done:** environment check and design docs; M0, M1 and M2 on Linux (2026-10-29); M3 on Linux (2026-10-30, reviewed); **M4 on Linux** (2026-10-30, reviewed); **M5 on Linux** (2026-10-30, reviewed).
-- **Next:** Milestone 6 (desktop integration).
+- **Done:** environment check and design docs; M0, M1 and M2 on Linux (2026-10-29); M3 on Linux (2026-10-30, reviewed); **M4 on Linux** (2026-10-30, reviewed); **M5 on Linux** (2026-10-30, reviewed); **M6 on Linux** (2026-10-30, awaiting review).
+- **Next:** Milestone 7 (release).
 - **Remote:** private GitHub repo `SpikeTheDragon40k/audium`, used for code and Releases only (no GitHub Actions).
 
 ## Resume here (updated 2026-10-30)
 
 State:
-- Branch `main`. M0–M5 are committed and pushed (M5 reviewed and tried by the maintainer on 2026-10-30).
-- `scripts/check.sh` passes. The maintainer's database is at schema 2 (no M5 migration).
+- Branch `main`. M0–M6 are committed and pushed. The maintainer tested M6 on their Plasma desktop (media keys, media widget, tray, close to tray, notifications): all work.
+- `scripts/check.sh` passes. No schema change in M6.
+
+Next: Milestone 7 (Release), see its section below. Suggested order: the responsive layout pass (the maintainer's main open complaint), theme tokens (Dracula/Nord), the 1000-book performance pass, PKGBUILD + `.desktop` + icon + AppStream, docs, then Windows (Craft build, SMTC, installer) on a Windows machine.
 
 How the work goes (keep doing this):
 - One milestone at a time. At the end: `scripts/check.sh`, update ROADMAP and ARCHITECTURE, then **stop for the maintainer's review**. Commit (no AI trailer) and push only when they say so.
@@ -392,6 +394,44 @@ Open / known limitations:
 - Linux: MPRIS2 via QtDBus (also handles media keys); KNotifications.
 - Tray: KStatusNotifierItem, closing to the tray while playing (configurable).
 - Windows: SMTC.
+
+### M6 status (2026-10-30)
+Done and verified locally with `scripts/check.sh` (all steps pass). Tested by the maintainer on Plasma 6 (Wayland): media keys, media widget, tray, close to tray and notifications work.
+
+What's in it (details in ARCHITECTURE §13):
+- **MPRIS2:** Plasma's media controls, media keys and the lock screen control Audium. The "track" is the chapter.
+- **Tray icon:** the current book and chapter, Play/Pause, Show/Hide, Quit; middle click plays or pauses.
+- **Close to tray:** closing the window while a book plays keeps it playing in the tray (Settings → Playback, on by default).
+- **Notifications:** "Book finished" and "Sleep timer".
+- **Windows SMTC: deferred** to the Windows bring-up in M7. It can be neither compiled nor tested here; nothing uncompiled was added.
+
+Tests:
+- `test_integration` (new, on a private D-Bus):
+  - MPRIS driven over the bus from a second connection: Identity and DesktopEntry; PlaybackStatus and PropertiesChanged; metadata (chapter title, book, author, chapter length, cover); Pause, PlayPause, Next, Previous with grace; SetPosition (and a stale id ignored); Seek plus the `Seeked` signal; Rate and Volume writes;
+  - a second Audium getting its own name;
+  - Play/Pause extending the sleep fade;
+  - the tray's text and actions;
+  - both notifications;
+  - closing to the tray (hide while playing, close while paused, close when the setting is off).
+- `test_playback`: seeking after playing and pausing sticks; "next chapter" works repeatedly while paused; playback resumes from the seek target.
+- `test_session`: playing a finished book from a chapter works normally (progress saved, no longer finished, even if paused at once); "play from here" on a paused book plays.
+
+Verified on the real desktop (the app offscreen, with a throwaway library, on the maintainer's session bus):
+- Plasma sees the MPRIS service (Identity "Audium", DesktopEntry `org.audium.Audium`).
+- Plasma's StatusNotifierWatcher lists Audium's tray item.
+
+Not verified:
+- **Physical media keys and the Plasma media widget by hand.**
+- **A notification appearing on screen:** the tests check they are sent, not displayed.
+- **The tray menu by hand.**
+
+Bugs found and fixed during M6 (several were in earlier milestones' code):
+- **Paused chapter navigation** (since M1): after a seek while paused, the reported position fell back by mpv's audio buffer, so "next chapter" while paused showed the previous chapter and repeated the same jump.
+- **Crash on quit** (new code): KStatusNotifierItem owns its menu, and the tray also deleted it.
+- **Playing a finished book from a chapter or bookmark** (since M4): it only seeked, so progress wasn't saved and the sleep timer didn't run. Restarting a finished book now also counts at once, even if paused immediately.
+- **"Play from here" on a paused book** (since M4) only seeked; now it plays.
+- **MPRIS "Seeked"** was first derived from position jumps and missed small seeks. It now comes from an explicit controller signal.
+- **Test infrastructure:** the private test bus activated `xdg-desktop-portal`, which held ctest's output open. Also, a shell `grep` wrapper (ugrep) hung in a pipeline during development; scripts and checks now call `/usr/bin/grep` and use `timeout`.
 
 ## M7 — Release
 - Linux packaging: PKGBUILD, `.desktop` file, icon, AppStream metainfo.

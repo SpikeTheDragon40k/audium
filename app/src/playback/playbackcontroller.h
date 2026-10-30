@@ -134,6 +134,9 @@ Q_SIGNALS:
     void errorStringChanged();
     // The last track played to its end.
     void endOfBook();
+    // A seek (from anywhere: UI, chapter navigation, media controls). Not
+    // emitted for normal progress or track changes during playback.
+    void seeked(qint64 positionMs);
     // A track could not be played; playback continues with the next one if possible.
     void trackFailed(int trackIndex, const QString &message);
 

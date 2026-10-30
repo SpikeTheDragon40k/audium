@@ -136,6 +136,38 @@ private Q_SLOTS:
         QTRY_VERIFY(near(player->position(), 2000));
     }
 
+    void seekingAfterPlayingAndPausingSticks()
+    {
+        // Play a while, pause, then jump: the position must stay where the
+        // seek put it, not fall back to where playback was paused.
+        loadAndWait({track(M4b)});
+        QTRY_COMPARE(player->chapters().size(), 3);
+        player->play();
+        QTRY_VERIFY_WITH_TIMEOUT(player->position() > 1000, 3000);
+        player->pause();
+        QTRY_COMPARE(player->state(), State::Paused);
+        const qint64 pausedAt = player->position();
+        player->nextChapter();
+        QTRY_VERIFY(near(player->position(), 2000));
+        QTest::qWait(600);
+        QVERIFY2(near(player->position(), 2000), qPrintable(QStringLiteral("paused at %1, now %2").arg(pausedAt).arg(player->position())));
+        QCOMPARE(player->chapterIndex(), 1);
+        // Pressing "next" again while paused moves on (it used to repeat
+        // the same chapter, because the position fell back).
+        player->nextChapter();
+        QTRY_VERIFY(near(player->position(), 4000));
+        QTest::qWait(600);
+        QVERIFY2(near(player->position(), 4000), qPrintable(QString::number(player->position())));
+        QCOMPARE(player->chapterIndex(), 2);
+        // Playback resumes from where the seek went, not from the lag.
+        player->seekBook(2500);
+        QTest::qWait(600);
+        QVERIFY(near(player->position(), 2500));
+        player->play();
+        QTRY_VERIFY_WITH_TIMEOUT(player->position() > 2700, 2000);
+        QVERIFY2(player->position() < 3500, qPrintable(QString::number(player->position())));
+    }
+
     void multiFileBookTransitionsWithoutErrors()
     {
         QSignalSpy failed(player.get(), &PlaybackController::trackFailed);
@@ -178,7 +210,8 @@ private Q_SLOTS:
         // Lands near the end of the first track of unknown length, not past it.
         QTRY_COMPARE(player->trackIndex(), 1);
         QTRY_VERIFY(player->trackDuration(1) > 0);
-        QTRY_VERIFY(player->trackPosition() > player->trackDuration(1) - 1000);
+        QTRY_VERIFY2(player->trackPosition() > player->trackDuration(1) - 1000,
+                     qPrintable(QStringLiteral("track %1 at %2 of %3").arg(player->trackIndex()).arg(player->trackPosition()).arg(player->trackDuration(1))));
         QTest::qWait(300);
         QCOMPARE(player->trackIndex(), 1);
         QCOMPARE(player->state(), State::Paused);

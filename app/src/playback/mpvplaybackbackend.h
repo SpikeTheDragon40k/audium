@@ -44,6 +44,7 @@ private:
     void updatePlayState();
     void applyPendingSeek();
     bool command(std::initializer_list<const char *> args);
+    void seekInCurrentFile(qint64 offsetMs);
     void setFlag(const char *name, bool value);
     void setDouble(const char *name, double value);
 
@@ -60,5 +61,11 @@ private:
     // After a load: the track that must load first. mpv may briefly start
     // another entry of the new playlist; those loads are ignored.
     int m_awaitTrack = -1;
+    // After a seek, mpv's time-pos lags the target by the audio buffer
+    // while paused. Until playback has moved past the target, the target is
+    // reported instead (-1: not holding).
+    qint64 m_seekHoldMs = -1;
+    int m_seekHoldTrack = -1;
+    qint64 m_seekHoldSince = 0;
     qint64 m_pendingSeekMs = 0;
 };

@@ -3,6 +3,7 @@
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
 #include <QStandardPaths>
+#include <QWindow>
 #include <QtQml>
 #include <QtQml/QQmlExtensionPlugin>
 
@@ -12,7 +13,12 @@
 
 #include "audium_bridge/src/library_controller.cxxqt.h"
 #include "audium_bridge/src/playback_session.cxxqt.h"
+#include "integration/notifier.h"
+#include "integration/tray.h"
 #include "sessionwiring.h"
+#ifdef AUDIUM_HAVE_MPRIS
+#include "integration/mpris.h"
+#endif
 #include "playback/mpvplaybackbackend.h"
 
 Q_IMPORT_QML_PLUGIN(org_audium_appPlugin)
@@ -49,16 +55,29 @@ int main(int argc, char *argv[])
         session.setDatabasePath(library.getDatabasePath());
     }
 
+    // Desktop integrations; each one may fail on its own (it then only logs).
+    TrayIcon tray(&player, &session);
+    Notifier notifier(&session);
+#ifdef AUDIUM_HAVE_MPRIS
+    Mpris mpris(&player, &session);
+#endif
+
     QQmlApplicationEngine engine;
     KLocalization::setupLocalizedContext(&engine);
     engine.setInitialProperties({
         {QStringLiteral("player"), QVariant::fromValue(static_cast<PlaybackController *>(&player))},
         {QStringLiteral("library"), QVariant::fromValue(&library)},
         {QStringLiteral("session"), QVariant::fromValue(&session)},
+        {QStringLiteral("tray"), QVariant::fromValue(&tray)},
     });
     engine.loadFromModule("org.audium.app", "Main");
     if (engine.rootObjects().isEmpty()) {
         return 1;
     }
+    auto *window = qobject_cast<QWindow *>(engine.rootObjects().constFirst());
+    tray.setWindow(window);
+#ifdef AUDIUM_HAVE_MPRIS
+    mpris.setWindow(window);
+#endif
     return app.exec();
 }

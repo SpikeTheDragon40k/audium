@@ -72,6 +72,10 @@ pub mod qobject {
         /// Increases after saved progress changed in a way the library
         /// shows (pause, stop, finished, another book); models reload on it.
         #[qproperty(i32, revision, READ, NOTIFY)]
+        /// The current book's authors, comma-separated.
+        #[qproperty(QString, book_authors, cxx_name = "bookAuthors", READ, NOTIFY)]
+        /// Closing the window while a book plays hides it to the tray.
+        #[qproperty(bool, close_to_tray, cxx_name = "closeToTray")]
         type PlaybackSession = super::PlaybackSessionRust;
 
         /// Loads a library book (resuming where it was left) and plays it.
@@ -105,7 +109,7 @@ pub mod qobject {
         #[cxx_name = "deleteBookmark"]
         fn delete_bookmark(self: Pin<&mut PlaybackSession>, id: i64);
 
-        /// Seek within the current book (book-wide position).
+        /// Play the current book from a book-wide position (seek, then play).
         #[qsignal]
         #[cxx_name = "seekRequested"]
         fn seek_requested(self: Pin<&mut PlaybackSession>, position_ms: i64);
@@ -135,6 +139,16 @@ pub mod qobject {
         #[qsignal]
         #[cxx_name = "pauseRequested"]
         fn pause_requested(self: Pin<&mut PlaybackSession>);
+
+        /// A library book was played to its end.
+        #[qsignal]
+        #[cxx_name = "bookFinished"]
+        fn book_finished(self: Pin<&mut PlaybackSession>, title: QString);
+
+        /// The sleep timer paused playback.
+        #[qsignal]
+        #[cxx_name = "sleepTimerExpired"]
+        fn sleep_timer_expired(self: Pin<&mut PlaybackSession>);
 
         /// Output volume multiplier for the sleep fade (1.0 = none).
         #[qsignal]
@@ -186,6 +200,7 @@ const DEFAULT_SKIP_BACK_MS: i32 = 15_000;
 const DEFAULT_SKIP_FORWARD_MS: i32 = 30_000;
 const KEY_SKIP_BACK: &str = "skip_back_ms";
 const KEY_SKIP_FORWARD: &str = "skip_forward_ms";
+const KEY_CLOSE_TO_TRAY: &str = "close_to_tray";
 
 struct LoadedTrack {
     id: TrackId,
@@ -220,6 +235,8 @@ pub struct PlaybackSessionRust {
     sleep_fading: bool,
     sleep_remaining_ms: i64,
     revision: i32,
+    book_authors: QString,
+    close_to_tray: bool,
 
     writer: Option<Writer>,
     current: Option<Current>,
@@ -248,6 +265,8 @@ impl Default for PlaybackSessionRust {
             sleep_fading: false,
             sleep_remaining_ms: 0,
             revision: 0,
+            book_authors: QString::default(),
+            close_to_tray: true,
             writer: None,
             current: None,
             progress: ProgressTracker::new(),
@@ -273,6 +292,11 @@ impl cxx_qt::Initialize for qobject::PlaybackSession {
             .release();
         this.as_mut()
             .on_skip_forward_ms_changed(|s| s.save_setting(KEY_SKIP_FORWARD, s.skip_forward_ms))
+            .release();
+        this.as_mut()
+            .on_close_to_tray_changed(|s| {
+                s.save_setting(KEY_CLOSE_TO_TRAY, i32::from(s.close_to_tray))
+            })
             .release();
     }
 }
@@ -354,8 +378,13 @@ impl qobject::PlaybackSession {
         };
         let back = read_ms(KEY_SKIP_BACK, DEFAULT_SKIP_BACK_MS);
         let forward = read_ms(KEY_SKIP_FORWARD, DEFAULT_SKIP_FORWARD_MS);
+        let close_to_tray = playback::setting(db.conn(), KEY_CLOSE_TO_TRAY)
+            .ok()
+            .flatten()
+            .is_none_or(|v| v != "0");
         self.as_mut().set_skip_back_ms(back);
         self.as_mut().set_skip_forward_ms(forward);
+        self.as_mut().set_close_to_tray(close_to_tray);
     }
 
     fn save_setting(&self, key: &'static str, value: i32) {
@@ -373,11 +402,12 @@ impl qobject::PlaybackSession {
     }
 
     fn play_book_at(mut self: Pin<&mut Self>, book_id: i64, position_ms: i64) -> bool {
-        // Already playing this book: just seek.
+        // Already playing this book: just seek. (A finished book is loaded
+        // again, so that progress and the sleep timer work after it.)
         if self
             .current
             .as_ref()
-            .is_some_and(|c| c.book.0 == book_id && c.ready)
+            .is_some_and(|c| c.book.0 == book_id && c.ready && !c.finished)
         {
             self.as_mut().seek_requested(position_ms.max(0));
             return true;
@@ -397,6 +427,7 @@ impl qobject::PlaybackSession {
             }
         };
         let (tracks, chapters, progress, speed, summary) = loaded;
+        let was_finished = progress.is_some_and(|p| p.finished);
         if tracks.is_empty() {
             return false;
         }
@@ -449,8 +480,19 @@ impl qobject::PlaybackSession {
                 finished: false,
             });
         }
+        // Starting a finished book again restarts it: save the new start now,
+        // so it leaves "Finished" even if it is paused right away.
+        if was_finished {
+            self.as_mut().write_progress(initial, now_ms());
+        }
         set_ro!(self, book_id, book_id_changed, book_id);
         set_ro!(self, book_title, book_title_changed, qs(&summary.title));
+        set_ro!(
+            self,
+            book_authors,
+            book_authors_changed,
+            qs(&summary.authors.join(", "))
+        );
         set_ro!(
             self,
             cover_url,
@@ -559,6 +601,7 @@ impl qobject::PlaybackSession {
             if tick.expired {
                 self.as_mut().apply_fade(1.0);
                 self.as_mut().pause_requested();
+                self.as_mut().sleep_timer_expired();
             } else {
                 self.as_mut().apply_fade(tick.volume_factor);
             }
@@ -624,6 +667,8 @@ impl qobject::PlaybackSession {
             });
         }
         self.as_mut().notify_after_writes();
+        let title = self.book_title.clone();
+        self.as_mut().book_finished(title);
     }
 
     fn detach(mut self: Pin<&mut Self>) {
@@ -648,6 +693,7 @@ impl qobject::PlaybackSession {
         self.as_mut().rust_mut().playing = false;
         set_ro!(self, book_id, book_id_changed, 0);
         set_ro!(self, book_title, book_title_changed, QString::default());
+        set_ro!(self, book_authors, book_authors_changed, QString::default());
         set_ro!(self, cover_url, cover_url_changed, QUrl::default());
         self.as_mut().notify_after_writes();
     }

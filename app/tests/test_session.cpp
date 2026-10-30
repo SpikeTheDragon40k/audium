@@ -344,11 +344,41 @@ private Q_SLOTS:
         QVERIFY(run.session.playBookAt(book, 4500));
         QTRY_COMPARE_WITH_TIMEOUT(run.player.state(), State::Playing, 5000);
         QVERIFY2(run.player.trackIndex() == 2 && run.player.trackPosition() < 1200, qPrintable(QString::number(run.player.position())));
-        // Already playing: just seeks.
+        // Already loaded: seeks without reloading, and plays if paused.
         QSignalSpy loads(&run.session, &PlaybackSession::loadRequested);
+        run.player.pause();
+        QTRY_COMPARE(run.player.state(), State::Paused);
         QVERIFY(run.session.playBookAt(book, 1000));
-        QTRY_VERIFY(near(run.player.position(), 1000));
+        QTRY_VERIFY(run.player.position() >= 1000 && run.player.position() < 1800);
+        QTRY_COMPARE(run.player.state(), State::Playing);
         QCOMPARE(loads.count(), 0);
+    }
+
+    void playingAtAPositionAfterTheEndWorksNormally()
+    {
+        // Finish the book, then click a chapter of it: it must play and save
+        // progress again (it used to only seek, with the session still
+        // treating the book as finished).
+        const qint64 book = m_books.value(QStringLiteral("Fixture Book With Chapters"));
+        Run run(m_dbPath);
+        QVERIFY(run.session.playBookAt(book, 5400));
+        QTRY_COMPARE_WITH_TIMEOUT(run.player.state(), State::Playing, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(finished(book), 3000);
+        QVERIFY(run.session.playBookAt(book, 2000));
+        QTRY_COMPARE_WITH_TIMEOUT(run.player.state(), State::Playing, 5000);
+        QTRY_VERIFY(run.player.position() >= 1900 && run.player.position() < 3000);
+        run.player.pause();
+        QTRY_COMPARE(run.player.state(), State::Paused);
+        QTRY_VERIFY(!finished(book));
+        QTRY_VERIFY2(near(savedPosition(book), run.player.position()), qPrintable(QString::number(savedPosition(book))));
+
+        // Starting a finished book counts as restarting it at once, even when
+        // it is paused before the position has moved.
+        QVERIFY(run.session.playBookAt(book, 5400));
+        QTRY_VERIFY_WITH_TIMEOUT(finished(book), 4000);
+        QVERIFY(run.session.playBookAt(book, 2000));
+        QTRY_VERIFY_WITH_TIMEOUT(!finished(book), 3000);
+        QTRY_VERIFY(near(savedPosition(book), 2000));
     }
 
     void skipIntervalsArePersisted()

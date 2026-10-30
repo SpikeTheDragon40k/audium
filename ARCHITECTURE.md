@@ -238,6 +238,7 @@ There's no async runtime. Rust worker threads never touch QObjects.
 - **Sleep timer:** counts only while playing, ticked by position updates. The last 10 s fade the output through `PlaybackController::setVolumeFactor`; the user's volume never changes. Mouse, key, wheel and touch events anywhere in Audium (an application event filter) extend a fading timer: minutes restart, "end of chapter" moves to the next chapter's end. Only for library books.
 - **View refresh:** `revision` bumps only after the session's writes commit (a writer job queues it to the Qt thread), on pause, stop, finish and book change, not on the 5 s saves. Views bind `library.revision + session.revision`; dynamic pages get it through `Qt.binding`.
 - **mpv backend details:**
+  - After a seek, mpv's reported position lags the target by the audio buffer (~180 ms) while paused. The backend reports the seek target until playback has moved past it (per track; at most 1.5 s of playing). Without that, "next chapter" while paused fell back into the previous chapter and could not step forward (found in M6 through MPRIS).
   - mpv's volume isn't mirrored back into `volume`, so a fade never looks like a user change.
   - Before building a playlist the backend sets `playlist-start` and ignores `FILE_LOADED` of other entries until the start track has loaded. Otherwise "resume at the start of track N" played track 1.
 
@@ -268,18 +269,24 @@ There's no async runtime. Rust worker threads never touch QObjects.
   - **Refused files:** foreign, damaged and newer-format files are refused with a clear message, as are files over 200 MB.
 - **Database backup:** `VACUUM INTO` a temporary file next to the target, then a rename. Exports are also written to a temporary file and renamed, so a failure never leaves half a file.
 
-## 13. Platform integration
+## 13. Platform integration (M6)
 
-Integrations sit behind small interfaces. Each one fails independently and only logs a warning when it fails; playback never depends on them.
+Every integration is a small, independent C++ class in `app/src/integration/`, created in `main.cpp`. Each one may fail on its own (it then logs and does nothing); playback never depends on any of them.
 
-| Linux | Windows |
-|---|---|
-| MPRIS2 via QtDBus (also serves media keys) | SMTC in an isolated WinRT file |
-| KNotifications | |
-
-`KStatusNotifierItem` provides the tray on both platforms; on Windows it falls back to `QSystemTrayIcon`.
-
-Windows dependencies come through **KDE Craft**, using its prebuilt binary cache, on a local Windows machine. Until M7, a Windows build is best-effort: the code stays portable and platform code stays isolated. Cold Craft builds take hours, and whether mpv is available through Craft is still unverified.
+- **MPRIS2 (`mpris.{h,cpp}`, Linux; QtDBus):** service `org.mpris.MediaPlayer2.audium`, or `.instance<pid>` when another Audium already has the name.
+  - **The track is the current chapter.** Title = chapter, album = book, artist = authors, art = cached cover. Length, Position, Seek and SetPosition are relative to the chapter; Next and Previous are chapter navigation. Rate and Volume can be set (rate 0 pauses).
+  - **Track ids:** `/org/audium/Audium/book<id>/chapter<n>`, so clients notice chapter changes; SetPosition with a stale id is ignored, as the spec requires.
+  - **Signals:** `PropertiesChanged` is sent for status, metadata, capabilities, rate and volume. `Seeked` is forwarded from the new `PlaybackController::seeked` signal, emitted on every seek from any source. Position is never signalled; clients poll it.
+  - **Media keys:** Plasma routes them to MPRIS. Play/PlayPause during the sleep timer's fade extends it instead.
+  - Raise shows the window; Quit quits.
+- **Tray (`tray.{h,cpp}`, KStatusNotifierItem; falls back to QSystemTrayIcon on Windows):**
+  - **Menu:** the current book and chapter, plus Play/Pause. KStatusNotifierItem adds Show/Hide and Quit.
+  - **Clicks:** left click shows or hides the window; middle click plays or pauses.
+  - **Ownership:** the item owns its context menu and deletes it; deleting it again crashed on quit (found by the M6 test).
+- **Close to tray:** `Main.qml`'s `onClosing` hides the window instead of closing while a book plays, when the setting (`settings.close_to_tray`, default on; Settings → Playback) is on and a tray is available. Otherwise closing quits; the quit path saves progress.
+- **Notifications (`notifier.{h,cpp}`, KNotifications):** "Book finished" and "Sleep timer" (playback paused). They use the desktop's standard notification event (`KNotification::event(StandardEvent…)`), so no `.notifyrc` has to be installed and they work from the build tree. They are driven by the session's `bookFinished` and `sleepTimerExpired` signals.
+- **Windows SMTC:** not written yet (decision in M6). It can be neither compiled nor tested without a Windows machine. It slots in as another class beside these, in the Windows bring-up (M7).
+- **Tests (`test_integration`):** run under `dbus-run-session` with `app/tests/dbus-session.conf`, a private bus with no activatable services. Without that config, the bus started `xdg-desktop-portal` on demand, which kept ctest's output pipe open until the timeout. MPRIS is driven from a second bus connection with async calls, exactly as a desktop client would.
 
 ## 14. Cross-cutting
 

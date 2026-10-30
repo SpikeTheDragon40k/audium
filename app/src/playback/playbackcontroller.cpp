@@ -149,6 +149,7 @@ void PlaybackController::seekTrack(int trackIndex, qint64 offsetMs)
     Q_EMIT positionChanged();
     updateChapterIndex();
     backendSeek(trackIndex, offsetMs);
+    Q_EMIT seeked(position());
 }
 
 void PlaybackController::skip(qint64 deltaMs)

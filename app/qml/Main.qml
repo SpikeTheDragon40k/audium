@@ -10,6 +10,10 @@ Kirigami.ApplicationWindow {
     required property PlaybackController player
     required property LibraryController library
     required property PlaybackSession session
+    /// The tray icon (C++ TrayIcon), when there is one; not set in tests.
+    property var tray: null
+    /// True after the window was hidden to the tray instead of closing.
+    property bool hiddenToTray: false
 
     readonly property int skipBackMs: session.skipBackMs
     readonly property int skipForwardMs: session.skipForwardMs
@@ -130,6 +134,18 @@ Kirigami.ApplicationWindow {
     title: player.hasMedia && player.trackTitle.length > 0
         ? i18nc("@title:window %1 is the current track", "%1 — Audium", player.trackTitle)
         : i18nc("@title:window", "Audium")
+    // Closing the window while a book plays keeps it playing in the tray
+    // (Settings → Playback); otherwise closing quits.
+    onClosing: close => {
+        if (root.session.closeToTray && root.tray && root.tray.available
+                && root.player.state === PlaybackController.Playing) {
+            close.accepted = false
+            root.hiddenToTray = true
+            root.hide()
+        }
+    }
+    onVisibleChanged: if (visible) hiddenToTray = false
+
     minimumWidth: Kirigami.Units.gridUnit * 20
     minimumHeight: Kirigami.Units.gridUnit * 20
     width: Kirigami.Units.gridUnit * 50
