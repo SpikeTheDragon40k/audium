@@ -6,6 +6,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QtQml/QQmlExtensionPlugin>
+#include <QSignalSpy>
 #include <QTemporaryDir>
 #include <algorithm>
 #include <QtTest>
@@ -52,12 +53,69 @@ QQuickItem *visibleTile(QQuickItem *view)
     return nullptr;
 }
 
+// A tile named `objectName` of `view` that is on screen.
+QQuickItem *visibleItem(QQuickItem *view, const QString &objectName)
+{
+    const QRectF viewRect = view->mapRectToScene(view->boundingRect());
+    QList<QQuickItem *> items;
+    collectItems(view, items);
+    for (QQuickItem *item : std::as_const(items)) {
+        const QRectF r = item->mapRectToScene(item->boundingRect());
+        if (item->objectName() == objectName && item->isVisible() && r.width() > 10 && viewRect.contains(r.center())) {
+            return item;
+        }
+    }
+    return nullptr;
+}
+
+// Like a user: move the pointer there (ending hovers and their tooltips
+// elsewhere, which would otherwise swallow the press), then click.
+void click(QQuickWindow *window, QQuickItem *item)
+{
+    const QPoint p = item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint();
+    QTest::mouseMove(window, p);
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, p);
+}
+
+// The visible view called `objectName` (views of hidden tabs stay alive).
+QQuickItem *visibleView(QQuickWindow *window, const QString &objectName)
+{
+    for (QQuickItem *v : window->findChildren<QQuickItem *>(objectName)) {
+        if (v->isVisible() && v->width() > 100 && v->height() > 100) {
+            return v;
+        }
+    }
+    return nullptr;
+}
+
+// A visible, enabled button showing the icon `iconName` (e.g. Kirigami's
+// back button), anywhere in the window.
+QQuickItem *visibleButton(QQuickWindow *window, const QString &iconName)
+{
+    QList<QQuickItem *> items;
+    collectItems(window->contentItem(), items);
+    for (QQuickItem *item : std::as_const(items)) {
+        // `icon` is a QQuickIcon value type: read its name through the gadget.
+        const QVariant icon = item->property("icon");
+        const QMetaObject *mo = icon.metaType().metaObject();
+        if (!(icon.metaType().flags() & QMetaType::IsGadget) || !mo || mo->indexOfProperty("name") < 0) {
+            continue;
+        }
+        const QString name = mo->property(mo->indexOfProperty("name")).readOnGadget(icon.constData()).toString();
+        const QRectF r = item->mapRectToScene(item->boundingRect());
+        if (name == iconName && item->isVisible() && item->isEnabled() && r.width() > 4
+            && QRectF(QPointF(0, 0), window->size()).contains(r.center())) {
+            return item;
+        }
+    }
+    return nullptr;
+}
+
 // Clicks `tile` like a user and checks that its book's details page opens.
 bool clickOpensDetails(QQuickWindow *window, QQuickItem *tile)
 {
     const qint64 id = tile->property("bookId").toLongLong();
-    const QPoint center = tile->mapToScene(QPointF(tile->width() / 2, tile->height() / 2)).toPoint();
-    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center);
+    click(window, tile);
     return QTest::qWaitFor([&] {
         const auto pages = window->findChildren<QObject *>(QStringLiteral("bookDetailsPage"));
         return std::any_of(pages.begin(), pages.end(), [&](QObject *p) {
@@ -81,7 +139,10 @@ private Q_SLOTS:
     {
         // Any Qt/QML/KF warning is a failure. This only lasts for one test
         // function, so it must be set before each of them.
-        QTest::failOnWarning(QRegularExpression(QStringLiteral(".*")));
+        // One exception: Kirigami 6.31 warns about "conflicting anchors" on
+        // every pageStack.layers.push(), even of a plain page (checked with a
+        // minimal standalone QML file); it is harmless.
+        QTest::failOnWarning(QRegularExpression(QStringLiteral("^(?!.*StackView has detected conflicting anchors).*")));
     }
 
     void echoRoundTripsThroughRust()
@@ -172,6 +233,17 @@ private Q_SLOTS:
         BookListModel books;
         books.setDatabasePath(library.getDatabasePath());
         QCOMPARE(books.rowCount(QModelIndex()), library.getBookCount());
+        // Model-level search works, and views are told the new row count
+        // during the reset (they read rowCount() inside endResetModel()).
+        int rowsSeenAtReset = -1;
+        connect(&books, &QAbstractItemModel::modelReset, this, [&] {
+            rowsSeenAtReset = books.rowCount(QModelIndex());
+        });
+        books.setSearch(QStringLiteral("disc"));
+        QCOMPARE(books.rowCount(QModelIndex()), 1);
+        QCOMPARE(rowsSeenAtReset, 1);
+        books.setSearch(QString());
+        QCOMPARE(rowsSeenAtReset, library.getBookCount());
         const int idRole = books.roleNames().key("bookId");
         const int titleRole = books.roleNames().key("title");
         const int coverRole = books.roleNames().key("coverUrl");
@@ -213,26 +285,69 @@ private Q_SLOTS:
         QTRY_VERIFY((tile = visibleTile(home)));
         QVERIFY(clickOpensDetails(window, tile));
 
-        // So is "All Books", in both grid and list form.
-        QVERIFY(libraryPage->setProperty("homeTab", false));
+        // So is "Books": grid, list and bookshelf.
+        QVERIFY(libraryPage->setProperty("tab", 1));
         QQuickItem *grid = nullptr;
-        QTRY_VERIFY((grid = window->findChild<QQuickItem *>(QStringLiteral("gridView"))));
-        QTRY_VERIFY(grid->width() > 100 && grid->height() > 100);
+        QTRY_VERIFY((grid = visibleView(window, QStringLiteral("gridView"))));
         QTRY_VERIFY(grid->property("count").toInt() >= 8);
         QTRY_VERIFY((tile = visibleTile(grid)));
         QVERIFY(clickOpensDetails(window, tile));
-        QVERIFY(libraryPage->setProperty("gridView", false));
-        QQuickItem *list = nullptr;
-        QTRY_VERIFY((list = window->findChild<QQuickItem *>(QStringLiteral("listView"))));
-        QTRY_VERIFY(list->width() > 100 && list->height() > 100);
-        QVERIFY(libraryPage->setProperty("gridView", true));
-        QVERIFY(libraryPage->setProperty("homeTab", true));
+        QVERIFY(libraryPage->setProperty("booksView", 1));
+        QTRY_VERIFY(visibleView(window, QStringLiteral("listView")));
+        QVERIFY(libraryPage->setProperty("booksView", 2));
+        QQuickItem *shelf = nullptr;
+        QTRY_VERIFY((shelf = visibleView(window, QStringLiteral("bookshelfView"))));
+        QTRY_VERIFY((tile = visibleTile(shelf)));
+        QVERIFY(clickOpensDetails(window, tile));
+        QVERIFY(libraryPage->setProperty("booksView", 0));
+
+        // Search narrows the grid.
+        auto *search = window->findChild<QQuickItem *>(QStringLiteral("librarySearch"));
+        QVERIFY(search);
+        search->setProperty("text", QStringLiteral("disc"));
+        QVERIFY(QMetaObject::invokeMethod(search, "accepted"));
+        QTRY_COMPARE(visibleView(window, QStringLiteral("gridView"))->property("count").toInt(), 1);
+        search->setProperty("text", QString());
+        QVERIFY(QMetaObject::invokeMethod(search, "accepted"));
+        QTRY_VERIFY(visibleView(window, QStringLiteral("gridView"))->property("count").toInt() >= 8);
+
+        // Authors and series: cards open the group's books.
+        for (int tab : {2, 3}) {
+            QVERIFY(libraryPage->setProperty("tab", tab));
+            QQuickItem *groups = nullptr;
+            QTRY_VERIFY((groups = visibleView(window, QStringLiteral("groupView"))));
+            QQuickItem *card = nullptr;
+            QTRY_VERIFY((card = visibleItem(groups, QStringLiteral("groupTile"))));
+            const QString name = card->property("name").toString();
+            click(window, card);
+            QTRY_VERIFY(std::ranges::any_of(window->findChildren<QObject *>(QStringLiteral("booksPage")), [&](QObject *p) {
+                return p->property("name").toString() == name;
+            }));
+        }
+        QVERIFY(libraryPage->setProperty("tab", 4)); // collections (empty)
+        QTest::qWait(200);
+        QVERIFY(libraryPage->setProperty("tab", 0));
 
         // Every page opens without a QML warning.
         QVERIFY(QMetaObject::invokeMethod(window, "showReview"));
         QTRY_VERIFY(window->findChild<QObject *>(QStringLiteral("needsReviewPage")));
+
+        // Settings opens over the window and can be closed again, with its
+        // back button (clicked like a user) and with Escape.
+        QObject *layers = window->property("pageStack").value<QObject *>()->property("layers").value<QObject *>();
+        QVERIFY(layers);
         QVERIFY(QMetaObject::invokeMethod(window, "showSettings"));
         QTRY_VERIFY(window->findChild<QObject *>(QStringLiteral("settingsPage")));
+        QTRY_COMPARE(layers->property("depth").toInt(), 2);
+        QQuickItem *back = nullptr;
+        QTRY_VERIFY(!layers->property("busy").toBool()); // the layer finished sliding in
+        QTRY_VERIFY((back = visibleButton(window, QStringLiteral("go-previous-symbolic"))));
+        click(window, back);
+        QTRY_COMPARE(layers->property("depth").toInt(), 1);
+        QVERIFY(QMetaObject::invokeMethod(window, "showSettings"));
+        QTRY_COMPARE(layers->property("depth").toInt(), 2);
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_COMPARE(layers->property("depth").toInt(), 1);
         QVERIFY(QMetaObject::invokeMethod(window, "showBook", Q_ARG(QVariant, m4bId), Q_ARG(QVariant, QVariant())));
         QObject *detailsPage = nullptr;
         QTRY_VERIFY((detailsPage = [&]() -> QObject * {
@@ -249,6 +364,14 @@ private Q_SLOTS:
         QCOMPARE(details->getTitle(), QStringLiteral("Fixture Book With Chapters"));
         QCOMPARE(details->getChapters().size(), 3);
         QVERIFY(!details->getCoverUrl().isEmpty());
+        // The editor and the split page open from the details page.
+        QVERIFY(QMetaObject::invokeMethod(detailsPage, "editRequested", Q_ARG(QVariant, m4bId)));
+        QTRY_VERIFY(window->findChild<QObject *>(QStringLiteral("editMetadataPage")));
+        QTRY_COMPARE(layers->property("depth").toInt(), 2);
+        QTRY_VERIFY(!layers->property("busy").toBool());
+        QTRY_VERIFY((back = visibleButton(window, QStringLiteral("go-previous-symbolic"))));
+        click(window, back);
+        QTRY_COMPARE(layers->property("depth").toInt(), 1);
 
         // Play the library book through the session, then show Now Playing.
         QVERIFY(session.playBook(details->getBookId()));

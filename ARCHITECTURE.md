@@ -216,6 +216,7 @@ There's no async runtime. Rust worker threads never touch QObjects.
 - **`BookListModel` and `BookDetails`:** created in QML. They bind `databasePath` and `revision` and reload through `cxx_qt::Initialize` signal connections; each reload opens a short-lived read-only connection.
 - **Read-only Rust properties:** set with the crate's `set_ro!` macro (assign plus emit if changed).
 - **Kirigami 6.31 rule:** page actions must not be hidden when the page is created, neither by `DisplayHint.AlwaysHide` nor by `visible: false`. Either makes `ActionToolBar` destroy delegates during incubation (Qt warnings). Disable actions instead, or use an `InlineMessage` with an action, like the "Needs review" banner.
+- **Layers:** Settings, Edit Metadata and Split Book open as `pageStack.layers` over the window, with a back button; Escape closes them. As columns, a wide window gave them no way to close. Kirigami 6.31 warns "StackView has detected conflicting anchors" on every layer push, even for a plain page in a minimal standalone file; it's harmless, and that one message is exempted in `test_bridge`.
 - **Pages:** created with `pageStack` as parent and destroyed shortly after removal. Destroying them immediately triggers the same incubation warning when navigating quickly. Now Playing is one persistent instance.
 - **Views fill the page and scroll themselves.** A `Loader` inside a `ScrollView` gets no size, which made the library views blank and unclickable (found in M3).
 - **Tests:** any Qt/QML warning fails `test_bridge`. It loads the UI with an empty and with a full library, checks view sizes, and clicks tiles with real mouse events.
@@ -238,6 +239,18 @@ There's no async runtime. Rust worker threads never touch QObjects.
 - **mpv backend details:**
   - mpv's volume isn't mirrored back into `volume`, so a fade never looks like a user change.
   - Before building a playlist the backend sets `playlist-start` and ignores `FILE_LOADED` of other entries until the start track has loaded. Otherwise "resume at the start of track N" played track 1.
+
+## 12a. Organization (M4)
+- **Search:** an FTS5 table `books_fts` (migration 0002; `rowid` = book id; `unicode61 remove_diacritics 2`) over title, authors, narrators and series. `audium-storage::fts` re-indexes a book whenever `apply` writes it and prunes deleted books. User text becomes prefix terms (`"har"* "pot"*`), and operators are plain text.
+- **Lists:** one `read::BookQuery` combines a filter (all, review, continue, recent, finished), a scope (library, author, narrator, series ordered by number, collection ordered by position, no series), search and a sort (title, author, recently played, recently added). `read::list_groups` lists authors, narrators, series and collections with counts and a cover.
+- **User organization (`audium-storage::organize`):** collections, bookmarks (title and note, in book order, with the chapter they fall in), metadata overrides (validated field names; lists one name per line), review dismissal, merge and split.
+- **Locked books:** merge and split set `books.grouping_locked`.
+  - The scanner takes a locked book's files out of normal grouping and rebuilds exactly that book, across folders if needed. Its metadata and chapters are still re-resolved, so overrides and tag edits apply.
+  - New files next to them are grouped as usual, and a locked book is never taken over by another candidate.
+- **Re-reading one book:** an override edit stores the overrides, then re-reads only that book's folders (`ScanOptions::force_dirs`). A request made while a scan runs is queued until it ends.
+- **Writes:** organizing writes from the UI are refused, with a message, while a scan runs instead of blocking. Bookmark writes go through the session's writer.
+- **QML structure:** the library has tabs Home, Books (search, sort, grid, list or bookshelf), Authors, Series and Collections. Reusable views are `BookGrid`, `BookList`, `GroupGrid` and `Bookshelf`. Group pages are `BooksPage`; `EditMetadataPage`, `SplitBookPage` and `NeedsReviewPage` (merge) complete it.
+- **Model rule:** a list model's `rowCount()` must return its real rows, never a `count` property updated after `endResetModel()`. Views read the row count *during* the reset, so they would keep the old number of items. `test_bridge` checks the row count seen at `modelReset`.
 
 ## 13. Platform integration
 

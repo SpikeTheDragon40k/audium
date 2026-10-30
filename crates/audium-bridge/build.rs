@@ -8,6 +8,8 @@ fn main() {
             "src/book_list_model.rs",
             "src/book_details.rs",
             "src/playback_session.rs",
+            "src/group_list_model.rs",
+            "src/bookmark_list_model.rs",
         ])
         .build();
 }

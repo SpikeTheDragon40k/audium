@@ -19,10 +19,23 @@ Kirigami.Page {
     signal reviewRequested()
     signal settingsRequested()
     signal nowPlayingRequested()
+    /// kind: 1 author, 3 series, 4 collection (BookListModel scope kinds)
+    signal groupRequested(int kind, var groupId, string name)
 
-    property bool gridView: true
-    // "Home" (continue listening, recent, finished) or "All Books".
-    property bool homeTab: true
+    enum Tab { Home, Books, Authors, Series, Collections }
+    property int tab: LibraryPage.Tab.Home
+    /// Books tab: 0 grid, 1 list, 2 bookshelf
+    property int booksView: 0
+
+    /// Ctrl+F: show the Books tab and focus its search field.
+    function focusSearch() {
+        tab = LibraryPage.Tab.Books
+        Qt.callLater(() => {
+            if (view.item && view.item.searchField) {
+                view.item.searchField.forceActiveFocus()
+            }
+        })
+    }
 
     objectName: "libraryPage"
     title: i18nc("@title", "Library")
@@ -33,24 +46,6 @@ Kirigami.Page {
     // destroy delegates during incubation (Qt warnings). So: no hidden
     // actions; disable instead, and let Kirigami overflow by itself.
     actions: [
-        Kirigami.Action {
-            icon.name: "view-list-icons"
-            text: i18nc("@action:button", "Grid")
-            checkable: true
-            checked: page.gridView
-            enabled: !page.homeTab
-            displayHint: Kirigami.DisplayHint.IconOnly
-            onTriggered: page.gridView = true
-        },
-        Kirigami.Action {
-            icon.name: "view-list-details"
-            text: i18nc("@action:button", "List")
-            checkable: true
-            checked: !page.gridView
-            enabled: !page.homeTab
-            displayHint: Kirigami.DisplayHint.IconOnly
-            onTriggered: page.gridView = false
-        },
         Kirigami.Action {
             icon.name: "view-refresh"
             text: i18nc("@action:button", "Rescan")
@@ -122,14 +117,26 @@ Kirigami.Page {
         QQC2.TabBar {
             Layout.fillWidth: true
             visible: books.count > 0
-            currentIndex: page.homeTab ? 0 : 1
+            currentIndex: page.tab
             QQC2.TabButton {
                 text: i18nc("@title:tab", "Home")
-                onClicked: page.homeTab = true
+                onClicked: page.tab = LibraryPage.Tab.Home
             }
             QQC2.TabButton {
-                text: i18nc("@title:tab %1 is a number", "All Books (%1)", books.count)
-                onClicked: page.homeTab = false
+                text: i18nc("@title:tab %1 is a number", "Books (%1)", books.count)
+                onClicked: page.tab = LibraryPage.Tab.Books
+            }
+            QQC2.TabButton {
+                text: i18nc("@title:tab", "Authors")
+                onClicked: page.tab = LibraryPage.Tab.Authors
+            }
+            QQC2.TabButton {
+                text: i18nc("@title:tab", "Series")
+                onClicked: page.tab = LibraryPage.Tab.Series
+            }
+            QQC2.TabButton {
+                text: i18nc("@title:tab", "Collections")
+                onClicked: page.tab = LibraryPage.Tab.Collections
             }
         }
     }
@@ -182,7 +189,7 @@ Kirigami.Page {
         id: view
         anchors.fill: parent
         visible: books.count > 0
-        sourceComponent: page.homeTab ? homeComponent : page.gridView ? gridComponent : listComponent
+        sourceComponent: [homeComponent, booksComponent, authorsComponent, seriesComponent, collectionsComponent][page.tab]
     }
 
     Component {
@@ -221,79 +228,229 @@ Kirigami.Page {
     }
 
     Component {
-        id: gridComponent
-        GridView {
-            id: grid
-            objectName: "gridView"
-            readonly property real usableWidth: width - leftMargin - rightMargin
-            readonly property int columns: Math.max(1, Math.floor(usableWidth / (Kirigami.Units.gridUnit * 10)))
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-            QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
-            model: books
-            cellWidth: Math.floor(usableWidth / columns)
-            cellHeight: cellWidth + Kirigami.Units.gridUnit * 4
-            leftMargin: Kirigami.Units.smallSpacing
-            rightMargin: Kirigami.Units.smallSpacing
-            topMargin: Kirigami.Units.smallSpacing
-            reuseItems: true
-            delegate: BookTile {
-                width: grid.cellWidth
-                height: grid.cellHeight
+        id: booksComponent
+        ColumnLayout {
+            property alias searchField: search
+            spacing: 0
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: Kirigami.Units.smallSpacing
+                Kirigami.SearchField {
+                    id: search
+                    objectName: "librarySearch"
+                    Layout.fillWidth: true
+                    placeholderText: i18nc("@info:placeholder", "Search titles, authors, narrators, series…")
+                    delaySearch: true
+                    onAccepted: books.search = text
+                }
+                QQC2.ComboBox {
+                    id: sortBox
+                    enabled: page.booksView !== 2
+                    model: [
+                        i18nc("@item:inlistbox sort by", "Title"),
+                        i18nc("@item:inlistbox sort by", "Author"),
+                        i18nc("@item:inlistbox sort by", "Recently Played"),
+                        i18nc("@item:inlistbox sort by", "Recently Added")
+                    ]
+                    currentIndex: books.sort
+                    onActivated: index => books.sort = index
+                    QQC2.ToolTip.text: i18nc("@info:tooltip", "Sort by")
+                    QQC2.ToolTip.visible: hovered
+                    QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+                }
+                QQC2.ComboBox {
+                    visible: page.booksView === 2
+                    model: [
+                        i18nc("@item:inlistbox group shelves by", "By Series"),
+                        i18nc("@item:inlistbox group shelves by", "By Author"),
+                        i18nc("@item:inlistbox group shelves by", "By Collection")
+                    ]
+                    currentIndex: shelfGrouping.value
+                    onActivated: index => shelfGrouping.value = index
+                }
+                Repeater {
+                    model: [
+                        {icon: "view-list-icons", text: i18nc("@action:button", "Grid")},
+                        {icon: "view-list-details", text: i18nc("@action:button", "List")},
+                        {icon: "view-media-artist", text: i18nc("@action:button", "Bookshelf")}
+                    ]
+                    delegate: QQC2.ToolButton {
+                        required property int index
+                        required property var modelData
+                        icon.name: modelData.icon
+                        text: modelData.text
+                        display: QQC2.AbstractButton.IconOnly
+                        checkable: true
+                        checked: page.booksView === index
+                        onClicked: page.booksView = index
+                        QQC2.ToolTip.text: text
+                        QQC2.ToolTip.visible: hovered
+                        QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+                    }
+                }
+            }
+            Kirigami.PlaceholderMessage {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: books.count === 0 && books.search.length > 0
+                icon.name: "edit-find"
+                text: i18n("No books match “%1”", books.search)
+            }
+            BookGrid {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: page.booksView === 0 && books.count > 0
+                model: books
                 onBookRequested: id => page.bookRequested(id)
+            }
+            BookList {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: page.booksView === 1 && books.count > 0
+                model: page.booksView === 1 ? books : null
+                onBookRequested: id => page.bookRequested(id)
+            }
+            Loader {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                active: page.booksView === 2
+                visible: active
+                sourceComponent: Bookshelf {
+                    databasePath: page.library.databasePath
+                    revision: page.revision
+                    grouping: shelfGrouping.value
+                    onBookRequested: id => page.bookRequested(id)
+                }
             }
         }
     }
 
+    // The bookshelf grouping survives switching tabs.
+    QtObject {
+        id: shelfGrouping
+        property int value: 0
+    }
+
     Component {
-        id: listComponent
-        ListView {
-            id: list
-            objectName: "listView"
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-            QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
-            model: books
-            reuseItems: true
-            delegate: QQC2.ItemDelegate {
-                id: row
-                required property var bookId
-                required property string title
-                required property string authors
-                required property string series
-                required property url coverUrl
-                required property bool available
-                required property real durationMs
-                width: list.width
-                onClicked: page.bookRequested(bookId)
-                contentItem: RowLayout {
-                    spacing: Kirigami.Units.largeSpacing
-                    BookCover {
-                        Layout.preferredWidth: Kirigami.Units.gridUnit * 2.5
-                        Layout.preferredHeight: Layout.preferredWidth
-                        source: row.coverUrl
-                        available: row.available
-                    }
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 0
-                        QQC2.Label {
-                            Layout.fillWidth: true
-                            text: row.title
-                            elide: Text.ElideRight
-                        }
-                        QQC2.Label {
-                            Layout.fillWidth: true
-                            text: row.series.length > 0 ? i18nc("@info authors · series", "%1 · %2", row.authors, row.series) : row.authors
-                            elide: Text.ElideRight
-                            color: Kirigami.Theme.disabledTextColor
-                            font: Kirigami.Theme.smallFont
-                        }
-                    }
-                    QQC2.Label {
-                        text: row.available ? TimeFormat.format(row.durationMs) : i18nc("@info", "Unavailable")
-                        color: Kirigami.Theme.disabledTextColor
-                    }
+        id: authorsComponent
+        GroupGrid {
+            model: GroupListModel {
+                databasePath: page.library.databasePath
+                revision: page.revision
+                kind: 0
+            }
+            onGroupRequested: (id, name) => page.groupRequested(1, id, name)
+        }
+    }
+
+    Component {
+        id: seriesComponent
+        GroupGrid {
+            model: GroupListModel {
+                databasePath: page.library.databasePath
+                revision: page.revision
+                kind: 2
+            }
+            onGroupRequested: (id, name) => page.groupRequested(3, id, name)
+        }
+    }
+
+    Component {
+        id: collectionsComponent
+        ColumnLayout {
+            spacing: 0
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: Kirigami.Units.smallSpacing
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    text: i18n("Collections are your own lists of books. Add books from their details page.")
+                    wrapMode: Text.Wrap
+                    color: Kirigami.Theme.disabledTextColor
+                }
+                QQC2.Button {
+                    icon.name: "list-add"
+                    text: i18nc("@action:button", "New Collection…")
+                    onClicked: nameDialog.ask(0, "")
+                }
+            }
+            Kirigami.PlaceholderMessage {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: collections.count === 0
+                icon.name: "bookmarks"
+                text: i18n("No collections yet")
+            }
+            GroupGrid {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: collections.count > 0
+                model: GroupListModel {
+                    id: collections
+                    databasePath: page.library.databasePath
+                    revision: page.revision
+                    kind: 3
+                }
+                onGroupRequested: (id, name) => page.groupRequested(4, id, name)
+                onGroupMenuRequested: (id, name, item) => {
+                    collectionMenu.collectionId = id
+                    collectionMenu.collectionName = name
+                    collectionMenu.popup(item)
+                }
+            }
+        }
+    }
+
+    QQC2.Menu {
+        id: collectionMenu
+        property var collectionId: 0
+        property string collectionName
+        QQC2.MenuItem {
+            icon.name: "edit-rename"
+            text: i18nc("@action:inmenu", "Rename…")
+            onTriggered: nameDialog.ask(collectionMenu.collectionId, collectionMenu.collectionName)
+        }
+        QQC2.MenuItem {
+            icon.name: "edit-delete"
+            text: i18nc("@action:inmenu", "Delete Collection")
+            onTriggered: {
+                const error = page.library.deleteCollection(collectionMenu.collectionId)
+                applicationWindow().showPassiveNotification(error.length > 0 ? error
+                    : i18n("Collection “%1” deleted. Its books are still in your library.", collectionMenu.collectionName))
+            }
+        }
+    }
+
+    // New collection (id 0) or rename.
+    Kirigami.PromptDialog {
+        id: nameDialog
+        property var collectionId: 0
+        function ask(id, name) {
+            collectionId = id
+            nameField.text = name
+            open()
+            nameField.forceActiveFocus()
+        }
+        title: collectionId === 0 ? i18nc("@title:dialog", "New Collection") : i18nc("@title:dialog", "Rename Collection")
+        standardButtons: Kirigami.Dialog.Ok | Kirigami.Dialog.Cancel
+        QQC2.TextField {
+            id: nameField
+            placeholderText: i18nc("@info:placeholder", "Name")
+            onAccepted: nameDialog.accept()
+        }
+        onAccepted: {
+            const name = nameField.text.trim()
+            if (name.length === 0) {
+                return
+            }
+            if (collectionId === 0) {
+                if (page.library.createCollection(name) === 0) {
+                    applicationWindow().showPassiveNotification(i18n("The collection could not be created."))
+                }
+            } else {
+                const error = page.library.renameCollection(collectionId, name)
+                if (error.length > 0) {
+                    applicationWindow().showPassiveNotification(error)
                 }
             }
         }

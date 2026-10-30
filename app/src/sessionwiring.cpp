@@ -14,6 +14,9 @@ SessionWiring::SessionWiring(PlaybackController *player, PlaybackSession *sessio
     connect(session, &PlaybackSession::loadRequested, this, &SessionWiring::loadPendingBook);
     connect(session, &PlaybackSession::pauseRequested, player, &PlaybackController::pause);
     connect(session, &PlaybackSession::fadeRequested, player, &PlaybackController::setVolumeFactor);
+    connect(session, &PlaybackSession::seekRequested, player, [player](qint64 positionMs) {
+        player->seekBook(positionMs);
+    });
 
     // Anything loaded behind the session's back (e.g. "Open Files") is not a
     // library book: stop tracking.

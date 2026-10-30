@@ -311,6 +311,46 @@ private Q_SLOTS:
         QVERIFY(near(savedPosition(book), 2500));
     }
 
+    void bookmarksAtTheCurrentPosition()
+    {
+        const qint64 book = m_books.value(QStringLiteral("The Folder Book"));
+        Run run(m_dbPath);
+        QVERIFY(!run.session.addBookmark()); // nothing playing yet
+        play(run, QStringLiteral("The Folder Book"));
+        run.player.seekBook(3000);
+        QTRY_VERIFY(near(run.player.position(), 3000));
+        run.player.pause();
+        QTRY_COMPARE(run.player.state(), State::Paused);
+        QSignalSpy revision(&run.session, &PlaybackSession::revisionChanged);
+        QVERIFY(run.session.addBookmark());
+        QTRY_VERIFY(revision.count() > 0);
+        const qint64 at = query(QStringLiteral("SELECT book_position_ms FROM bookmarks WHERE book_id = ?"), book).toLongLong();
+        QVERIFY2(near(at, 3000), qPrintable(QString::number(at)));
+        const QString track = query(QStringLiteral("SELECT t.display_path FROM bookmarks b JOIN tracks t ON t.id = b.track_id WHERE b.book_id = ?"), book).toString();
+        QVERIFY2(track.endsWith(QStringLiteral("Track 2.mp3")), qPrintable(track));
+
+        const qint64 id = query(QStringLiteral("SELECT id FROM bookmarks WHERE book_id = ?"), book).toLongLong();
+        run.session.updateBookmark(id, QStringLiteral("Big reveal"), QStringLiteral("remember this"));
+        QTRY_COMPARE(query(QStringLiteral("SELECT title FROM bookmarks WHERE book_id = ?"), book).toString(), QStringLiteral("Big reveal"));
+        run.session.deleteBookmark(id);
+        QTRY_VERIFY(!query(QStringLiteral("SELECT id FROM bookmarks WHERE book_id = ?"), book).isValid());
+    }
+
+    void playBookAtStartsOrSeeks()
+    {
+        Run run(m_dbPath);
+        const qint64 book = m_books.value(QStringLiteral("The Folder Book"));
+        // Not playing yet: loads at that position (a chapter or a bookmark).
+        QVERIFY(run.session.playBookAt(book, 4500));
+        QTRY_COMPARE_WITH_TIMEOUT(run.player.state(), State::Playing, 5000);
+        QVERIFY2(run.player.trackIndex() == 2 && run.player.trackPosition() < 1200, qPrintable(QString::number(run.player.position())));
+        // Already playing: just seeks.
+        QSignalSpy loads(&run.session, &PlaybackSession::loadRequested);
+        QVERIFY(run.session.playBookAt(book, 1000));
+        QTRY_VERIFY(near(run.player.position(), 1000));
+        QCOMPARE(loads.count(), 0);
+    }
+
     void skipIntervalsArePersisted()
     {
         {

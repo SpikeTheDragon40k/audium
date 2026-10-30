@@ -77,6 +77,7 @@ impl Env {
             cache_dir: self.cache.clone(),
             threads: 4,
             force: true,
+            force_dirs: Vec::new(),
         };
         scan_library(&mut self.db, &lib, &opts, &AtomicBool::new(false), &|_| {}).expect("scan")
     }
@@ -87,6 +88,7 @@ impl Env {
             cache_dir: self.cache.clone(),
             threads: 4,
             force: false,
+            force_dirs: Vec::new(),
         };
         scan_library(&mut self.db, &lib, &opts, cancel, &|_| {})
     }
@@ -589,4 +591,116 @@ fn forced_rescan_regroups_existing_books_and_keeps_progress() {
         track_ok,
         "the progress still points at one of the book's tracks"
     );
+}
+
+fn scan_with_dirs(env: &mut Env, dirs: Vec<PathBuf>) -> ScanSummary {
+    let lib = env.library();
+    let opts = ScanOptions {
+        cache_dir: env.cache.clone(),
+        threads: 2,
+        force: false,
+        force_dirs: dirs,
+    };
+    scan_library(&mut env.db, &lib, &opts, &AtomicBool::new(false), &|_| {}).expect("scan")
+}
+
+#[test]
+fn merged_books_stay_merged_across_rescans() {
+    use audium_storage::organize;
+    let mut env = Env::new(&["loose-author", "multi-disc"]);
+    env.scan();
+    let first = env.book("First Story").id;
+    let second = env.book("Second Story").id;
+    let disc = env.book("Disc Book").id;
+    // Merge books from two different folders.
+    organize::merge_books(&mut env.db, first, &[second, disc], now_ms()).expect("merge");
+    assert_eq!(env.books().len(), 1);
+
+    for forced in [false, true] {
+        if forced {
+            env.scan_forced();
+        } else {
+            env.scan();
+        }
+        let books = env.books();
+        assert_eq!(books.len(), 1, "forced={forced}: {:?}", env.titles());
+        assert_eq!(books[0].id, first);
+        assert_eq!(books[0].track_count, 8);
+    }
+    // A new file next to locked ones becomes its own book, not part of the merge.
+    let dir = env.root.join("Dee Novelist");
+    fs::copy(
+        fixtures().join("unicode/Ünïcødé Àuthor/Livre d’été 本/Chapitre 01 – début.mp3"),
+        dir.join("Third Story.mp3"),
+    )
+    .expect("copy");
+    env.scan();
+    let books = env.books();
+    assert_eq!(books.len(), 2, "{:?}", env.titles());
+    let merged = books
+        .iter()
+        .find(|b| b.id == first)
+        .expect("merged book kept");
+    assert_eq!(merged.track_count, 8);
+    // Its metadata is re-resolved from all its files: the majority album wins
+    // (the user can override it).
+    assert_eq!(merged.title, "Disc Book");
+}
+
+#[test]
+fn split_books_stay_split() {
+    use audium_storage::organize;
+    let mut env = Env::new(&["folder-book"]);
+    env.scan();
+    let book = env.book("The Folder Book").id;
+    let tracks = read::tracks(env.db.conn(), book).expect("tracks");
+    let new = organize::split_book(
+        &mut env.db,
+        book,
+        &[tracks[2].id],
+        &audium_core::BookUid::from_random_bytes([7; 16]),
+        now_ms(),
+    )
+    .expect("split");
+    env.scan_forced();
+    let mut counts: Vec<(i64, i64)> = env
+        .books()
+        .iter()
+        .map(|b| (b.id.0, b.track_count))
+        .collect();
+    counts.sort();
+    assert_eq!(counts, [(book.0, 2), (new.0, 1)]);
+}
+
+#[test]
+fn overrides_apply_when_the_book_is_re_read() {
+    use audium_storage::organize;
+    let mut env = Env::new(&["folder-book", "multi-disc"]);
+    env.scan();
+    let book = env.book("The Folder Book").id;
+    organize::set_override(env.db.conn(), book, "title", "My Own Title", now_ms())
+        .expect("override");
+    organize::set_override(env.db.conn(), book, "authors", "Me\nYou", now_ms()).expect("override");
+    let (_, dirs) = organize::book_folders(env.db.conn(), book).expect("dirs");
+    let s = scan_with_dirs(&mut env, dirs);
+    assert_eq!(s.folders_unchanged, 1, "only the book's folder is re-read");
+    let b = env.book("My Own Title");
+    assert_eq!(
+        (b.id, b.authors.clone()),
+        (book, vec!["Me".to_string(), "You".to_string()])
+    );
+    let detail = read::book(env.db.conn(), book)
+        .expect("detail")
+        .expect("exists");
+    assert!(
+        detail
+            .provenance
+            .contains(&("title".to_string(), "override".to_string()))
+    );
+
+    // Clearing the override brings the tags back.
+    organize::set_override(env.db.conn(), book, "title", "", now_ms()).expect("clear");
+    let (_, dirs) = organize::book_folders(env.db.conn(), book).expect("dirs");
+    scan_with_dirs(&mut env, dirs);
+    assert_eq!(env.book("The Folder Book").id, book);
 }

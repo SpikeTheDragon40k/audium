@@ -13,7 +13,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use crate::{Database, Result, StorageError, now_ms, paths};
 
 /// SQL condition (on `books.id`) true when a book has user data.
-pub(crate) const HAS_USER_DATA: &str = "(EXISTS (SELECT 1 FROM progress WHERE book_id = books.id)
+pub const HAS_USER_DATA: &str = "(EXISTS (SELECT 1 FROM progress WHERE book_id = books.id)
      OR EXISTS (SELECT 1 FROM bookmarks WHERE book_id = books.id)
      OR EXISTS (SELECT 1 FROM sessions WHERE book_id = books.id)
      OR EXISTS (SELECT 1 FROM overrides WHERE book_id = books.id)
@@ -289,6 +289,7 @@ pub fn apply(db: &mut Database, library: LibraryId, changes: &ScanChanges) -> Re
         };
         touched.insert(book_id);
         write_book(&tx, book_id, library, book, now)?;
+        crate::fts::refresh(&tx, BookId(book_id))?;
     }
 
     // Books left without tracks (their files now belong to other books).
@@ -469,6 +470,7 @@ fn write_book(
 }
 
 fn cleanup_orphans(conn: &Connection) -> Result<()> {
+    crate::fts::prune(conn)?;
     conn.execute(
         "DELETE FROM contributors WHERE NOT EXISTS (SELECT 1 FROM book_contributors WHERE contributor_id = contributors.id)",
         [],

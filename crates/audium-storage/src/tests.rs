@@ -598,3 +598,480 @@ mod playback_state {
         );
     }
 }
+
+mod queries {
+    use super::*;
+    use crate::read::{BookQuery, GroupKind, Scope, Sort};
+
+    fn library(db: &mut Database) {
+        let lib = write::add_library(db, Path::new("/books")).expect("lib");
+        let mut hobbit = book(
+            BookTarget::New(uid(1)),
+            "The Hobbit",
+            &["J. R. R. Tolkien"],
+            vec![track("/books/h.m4b", 100)],
+        );
+        hobbit.metadata.series = Some("Middle-earth".into());
+        hobbit.metadata.series_index = Some("1".into());
+        let mut rings = book(
+            BookTarget::New(uid(2)),
+            "The Lord of the Rings",
+            &["J. R. R. Tolkien"],
+            vec![track("/books/r.m4b", 100)],
+        );
+        rings.metadata.series = Some("Middle-earth".into());
+        rings.metadata.series_index = Some("2".into());
+        let mut ete = book(
+            BookTarget::New(uid(3)),
+            "Livre d’été",
+            &["Ünïcødé Àuthor"],
+            vec![track("/books/e.m4b", 100)],
+        );
+        ete.metadata.series = None;
+        ete.metadata.narrators = vec!["Zoé Reader".into()];
+        write::apply(
+            db,
+            lib,
+            &ScanChanges {
+                books: vec![rings, ete, hobbit],
+                ..Default::default()
+            },
+        )
+        .expect("apply");
+    }
+
+    fn titles(db: &Database, q: BookQuery<'_>) -> Vec<String> {
+        read::query_list(db.conn(), &q)
+            .expect("query")
+            .into_iter()
+            .map(|b| b.title)
+            .collect()
+    }
+
+    fn search(db: &Database, text: &str) -> Vec<String> {
+        let mut t = titles(
+            db,
+            BookQuery {
+                search: Some(text),
+                ..BookQuery::default()
+            },
+        );
+        t.sort();
+        t
+    }
+
+    #[test]
+    fn search_matches_prefixes_across_fields_and_ignores_accents() {
+        let (_dir, mut db) = db();
+        library(&mut db);
+        assert_eq!(search(&db, "hob"), ["The Hobbit"]);
+        assert_eq!(search(&db, "tolk"), ["The Hobbit", "The Lord of the Rings"]);
+        assert_eq!(
+            search(&db, "middle earth"),
+            ["The Hobbit", "The Lord of the Rings"],
+            "series"
+        );
+        assert_eq!(search(&db, "ete"), ["Livre d’été"], "accents folded");
+        assert_eq!(search(&db, "zoe"), ["Livre d’été"], "narrator");
+        assert_eq!(
+            search(&db, "tolkien rings"),
+            ["The Lord of the Rings"],
+            "all words must match"
+        );
+        assert!(search(&db, "nothing like this").is_empty());
+        assert_eq!(search(&db, "  ").len(), 3, "empty search lists everything");
+        assert!(
+            search(&db, "\"OR NEAR(").is_empty(),
+            "operators are plain text"
+        );
+    }
+
+    #[test]
+    fn search_index_follows_rescans_and_removals() {
+        let (_dir, mut db) = db();
+        library(&mut db);
+        let hobbit = book_id_by_title(&db, "The Hobbit");
+        let tid = read::tracks(db.conn(), hobbit).expect("t")[0].id;
+        let mut t = track("/books/h.m4b", 100);
+        t.existing = Some(tid);
+        let renamed = book(
+            BookTarget::Existing(hobbit),
+            "There and Back Again",
+            &["Bilbo"],
+            vec![t],
+        );
+        let lib = write::libraries(db.conn()).expect("libs")[0].id;
+        write::apply(
+            &mut db,
+            lib,
+            &ScanChanges {
+                books: vec![renamed],
+                ..Default::default()
+            },
+        )
+        .expect("rescan");
+        assert!(search(&db, "hobbit").is_empty());
+        assert_eq!(search(&db, "bilbo"), ["There and Back Again"]);
+        write::remove_library(&mut db, lib).expect("remove");
+        let indexed: i64 = db
+            .conn()
+            .query_row("SELECT count(*) FROM books_fts", [], |r| r.get(0))
+            .expect("q");
+        assert_eq!(indexed, 0);
+    }
+
+    #[test]
+    fn sorting_and_scopes() {
+        let (_dir, mut db) = db();
+        library(&mut db);
+        assert_eq!(
+            titles(&db, BookQuery::default()),
+            ["The Hobbit", "Livre d’été", "The Lord of the Rings"],
+            "title sort ignores 'The': hobbit < livre < lord"
+        );
+        assert_eq!(
+            titles(
+                &db,
+                BookQuery {
+                    sort: Sort::Author,
+                    ..BookQuery::default()
+                }
+            ),
+            ["The Hobbit", "The Lord of the Rings", "Livre d’été"],
+            "by author, then series index"
+        );
+        let groups = read::list_groups(db.conn(), GroupKind::Authors).expect("authors");
+        let names: Vec<&str> = groups.iter().map(|g| g.name.as_str()).collect();
+        assert_eq!(names, ["J. R. R. Tolkien", "Ünïcødé Àuthor"]);
+        assert_eq!(groups[0].book_count, 2);
+        let tolkien = groups[0].id;
+        assert_eq!(
+            titles(
+                &db,
+                BookQuery {
+                    scope: Scope::Author(tolkien),
+                    ..BookQuery::default()
+                }
+            )
+            .len(),
+            2
+        );
+
+        let series = read::list_groups(db.conn(), GroupKind::Series).expect("series");
+        assert_eq!(
+            (series.len(), series[0].name.as_str(), series[0].book_count),
+            (1, "Middle-earth", 2)
+        );
+        assert_eq!(
+            titles(
+                &db,
+                BookQuery {
+                    scope: Scope::Series(series[0].id),
+                    ..BookQuery::default()
+                }
+            ),
+            ["The Hobbit", "The Lord of the Rings"]
+        );
+        let narrators = read::list_groups(db.conn(), GroupKind::Narrators).expect("narrators");
+        assert!(narrators.iter().any(|g| g.name == "Zoé Reader"));
+        // Scope and search combine.
+        assert_eq!(
+            titles(
+                &db,
+                BookQuery {
+                    scope: Scope::Author(tolkien),
+                    search: Some("lord"),
+                    ..BookQuery::default()
+                }
+            ),
+            ["The Lord of the Rings"]
+        );
+    }
+
+    #[test]
+    fn migration_two_indexes_existing_books() {
+        // A v1 database with books, opened by this version: the books are searchable.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("audium.db");
+        {
+            let mut db = Database::open_with(&path, &crate::MIGRATIONS[..1]).expect("v1");
+            let lib = write::add_library(&db, Path::new("/books")).expect("lib");
+            // Apply without the FTS refresh: the v1 schema has no books_fts.
+            let tx = db.conn_mut().transaction().expect("tx");
+            tx.execute("INSERT INTO books (uid, library_id, title, title_sort, confidence, added_at, updated_at) VALUES (?1, ?2, 'Old Book', 'old book', 100, 0, 0)", rusqlite::params![uid(9).as_str(), lib.0]).expect("insert");
+            tx.commit().expect("commit");
+        }
+        let db = Database::open(&path).expect("migrate to v2");
+        assert_eq!(search(&db, "old"), ["Old Book"]);
+    }
+}
+
+mod organizing {
+    use super::*;
+    use crate::organize;
+    use crate::read::{BookQuery, GroupKind, Scope};
+
+    fn three_books(db: &mut Database) -> (BookId, BookId, BookId) {
+        let lib = write::add_library(db, Path::new("/books")).expect("lib");
+        write::apply(
+            db,
+            lib,
+            &ScanChanges {
+                books: vec![
+                    book(
+                        BookTarget::New(uid(1)),
+                        "Part A",
+                        &["A"],
+                        vec![track("/books/s/1.mp3", 1000), track("/books/s/2.mp3", 1000)],
+                    ),
+                    book(
+                        BookTarget::New(uid(2)),
+                        "Part B",
+                        &["A"],
+                        vec![track("/books/s/3.mp3", 1000)],
+                    ),
+                    book(
+                        BookTarget::New(uid(3)),
+                        "Part C",
+                        &["A"],
+                        vec![track("/books/s/4.mp3", 1000)],
+                    ),
+                ],
+                ..Default::default()
+            },
+        )
+        .expect("apply");
+        (
+            book_id_by_title(db, "Part A"),
+            book_id_by_title(db, "Part B"),
+            book_id_by_title(db, "Part C"),
+        )
+    }
+
+    fn track_paths(db: &Database, id: BookId) -> Vec<String> {
+        read::tracks(db.conn(), id)
+            .expect("t")
+            .into_iter()
+            .map(|t| t.display_path)
+            .collect()
+    }
+
+    #[test]
+    fn collections() {
+        let (_dir, mut db) = db();
+        let (a, b, _) = three_books(&mut db);
+        let favs = organize::create_collection(db.conn(), " Favourites ", 1).expect("create");
+        assert_eq!(
+            organize::create_collection(db.conn(), "Favourites", 2).expect("same"),
+            favs
+        );
+        assert!(organize::create_collection(db.conn(), "   ", 2).is_err());
+        organize::add_to_collection(db.conn(), favs, b).expect("add");
+        organize::add_to_collection(db.conn(), favs, a).expect("add");
+        organize::add_to_collection(db.conn(), favs, a).expect("again: no-op");
+        let titles: Vec<String> = read::query_list(
+            db.conn(),
+            &BookQuery {
+                scope: Scope::Collection(favs),
+                ..BookQuery::default()
+            },
+        )
+        .expect("q")
+        .into_iter()
+        .map(|b| b.title)
+        .collect();
+        assert_eq!(titles, ["Part B", "Part A"], "in the order added");
+        assert_eq!(
+            organize::collections_of(db.conn(), a).expect("of"),
+            [(favs, "Favourites".to_string())]
+        );
+        let other = organize::create_collection(db.conn(), "Other", 3).expect("create");
+        assert!(
+            organize::rename_collection(db.conn(), other, "Favourites").is_err(),
+            "names are unique"
+        );
+        organize::rename_collection(db.conn(), favs, "Best").expect("rename");
+        let groups = read::list_groups(db.conn(), GroupKind::Collections).expect("groups");
+        assert_eq!(
+            groups
+                .iter()
+                .map(|g| (g.name.as_str(), g.book_count))
+                .collect::<Vec<_>>(),
+            [("Best", 2), ("Other", 0)]
+        );
+        organize::remove_from_collection(db.conn(), favs, a).expect("remove");
+        organize::delete_collection(db.conn(), other).expect("delete");
+        assert_eq!(
+            read::list_groups(db.conn(), GroupKind::Collections)
+                .expect("g")
+                .len(),
+            1
+        );
+        assert_eq!(
+            read::list_books(db.conn(), BookFilter::All)
+                .expect("books")
+                .len(),
+            3,
+            "books stay"
+        );
+    }
+
+    #[test]
+    fn bookmarks() {
+        let (_dir, mut db) = db();
+        let (a, _, _) = three_books(&mut db);
+        let t = read::tracks(db.conn(), a).expect("t");
+        let late = organize::add_bookmark(db.conn(), a, Some(t[1].id), 500, 1500, 10).expect("add");
+        let early = organize::add_bookmark(db.conn(), a, Some(t[0].id), 200, 200, 11).expect("add");
+        organize::update_bookmark(
+            db.conn(),
+            late,
+            "  Important\u{0} ",
+            "line one\n\nline two",
+            12,
+        )
+        .expect("edit");
+        let list = organize::bookmarks(db.conn(), a).expect("list");
+        assert_eq!(
+            list.iter().map(|b| b.id).collect::<Vec<_>>(),
+            [early, late],
+            "in book order"
+        );
+        assert_eq!(list[1].title.as_deref(), Some("Important"));
+        assert_eq!(list[1].note.as_deref(), Some("line one\n\nline two"));
+        organize::update_bookmark(db.conn(), late, "", "", 13).expect("clear");
+        assert_eq!(
+            organize::bookmarks(db.conn(), a).expect("list")[1].title,
+            None
+        );
+        organize::delete_bookmark(db.conn(), early).expect("delete");
+        assert_eq!(organize::bookmarks(db.conn(), a).expect("list").len(), 1);
+    }
+
+    #[test]
+    fn overrides_and_dismissing_reviews() {
+        let (_dir, mut db) = db();
+        let (a, _, _) = three_books(&mut db);
+        organize::set_override(db.conn(), a, "title", " My Title ", 1).expect("set");
+        organize::set_override(db.conn(), a, "authors", "One\nTwo", 1).expect("set");
+        assert!(
+            organize::set_override(db.conn(), a, "path", "x", 1).is_err(),
+            "unknown field"
+        );
+        let o = organize::overrides(db.conn(), a).expect("get");
+        assert_eq!(o.get("title").map(String::as_str), Some("My Title"));
+        organize::set_override(db.conn(), a, "title", "", 2).expect("clear");
+        assert!(
+            !organize::overrides(db.conn(), a)
+                .expect("get")
+                .contains_key("title")
+        );
+        // Overrides are user data.
+        let has: bool = db
+            .conn()
+            .query_row(
+                &format!("SELECT {} FROM books WHERE id = ?1", write::HAS_USER_DATA),
+                [a.0],
+                |r| r.get(0),
+            )
+            .expect("q");
+        assert!(has);
+
+        db.conn().execute("INSERT INTO review_queue (book_id, reasons, created_at) VALUES (?1, '[\"missing_author\"]', 0)", [a.0]).expect("queue");
+        assert_eq!(
+            read::list_books(db.conn(), BookFilter::NeedsReview)
+                .expect("q")
+                .len(),
+            1
+        );
+        organize::dismiss_review(db.conn(), a, 5).expect("dismiss");
+        assert!(
+            read::list_books(db.conn(), BookFilter::NeedsReview)
+                .expect("q")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn merging_moves_tracks_and_user_data() {
+        let (_dir, mut db) = db();
+        let (a, b, c) = three_books(&mut db);
+        let tb = read::tracks(db.conn(), b).expect("t")[0].id;
+        organize::add_bookmark(db.conn(), b, Some(tb), 1, 1, 1).expect("bookmark");
+        playback_progress(&db, b, tb);
+        let favs = organize::create_collection(db.conn(), "Favs", 1).expect("c");
+        organize::add_to_collection(db.conn(), favs, c).expect("add");
+
+        organize::merge_books(&mut db, a, &[b, c, a], 10).expect("merge");
+        let books = read::list_books(db.conn(), BookFilter::All).expect("books");
+        assert_eq!(books.len(), 1);
+        assert_eq!(
+            track_paths(&db, a),
+            [
+                "/books/s/1.mp3",
+                "/books/s/2.mp3",
+                "/books/s/3.mp3",
+                "/books/s/4.mp3"
+            ]
+        );
+        assert_eq!(
+            organize::bookmarks(db.conn(), a).expect("b").len(),
+            1,
+            "bookmark moved"
+        );
+        assert!(
+            crate::playback::progress(db.conn(), a)
+                .expect("p")
+                .is_some(),
+            "progress moved (target had none)"
+        );
+        assert_eq!(
+            organize::collections_of(db.conn(), a).expect("c").len(),
+            1,
+            "collection membership moved"
+        );
+        let locked: bool = db
+            .conn()
+            .query_row(
+                "SELECT grouping_locked FROM books WHERE id = ?1",
+                [a.0],
+                |r| r.get(0),
+            )
+            .expect("q");
+        assert!(locked);
+        assert!(organize::merge_books(&mut db, BookId(999), &[a], 11).is_err());
+    }
+
+    fn playback_progress(db: &Database, book: BookId, track: audium_core::TrackId) {
+        crate::playback::save_progress(db.conn(), book, Some(track), 10, 2010, 5)
+            .expect("progress");
+    }
+
+    #[test]
+    fn splitting_moves_selected_tracks_to_a_new_book() {
+        let (_dir, mut db) = db();
+        let (a, _, _) = three_books(&mut db);
+        let t = read::tracks(db.conn(), a).expect("t");
+        organize::add_bookmark(db.conn(), a, Some(t[1].id), 1, 1001, 1).expect("bookmark");
+        assert!(
+            organize::split_book(&mut db, a, &[t[0].id, t[1].id], &uid(9), 2).is_err(),
+            "cannot move every track"
+        );
+        assert!(organize::split_book(&mut db, a, &[], &uid(9), 2).is_err());
+        let new = organize::split_book(&mut db, a, &[t[1].id], &uid(9), 2).expect("split");
+        assert_eq!(track_paths(&db, a), ["/books/s/1.mp3"]);
+        assert_eq!(track_paths(&db, new), ["/books/s/2.mp3"]);
+        assert_eq!(
+            organize::bookmarks(db.conn(), new).expect("b").len(),
+            1,
+            "bookmark followed its track"
+        );
+        let new_summary = read::book_summary(db.conn(), new)
+            .expect("q")
+            .expect("exists");
+        assert_eq!(new_summary.authors, ["A"]);
+        let (lib, dirs) = organize::book_folders(db.conn(), new).expect("folders");
+        assert!(lib.is_some());
+        assert_eq!(dirs, [std::path::PathBuf::from("/books/s")]);
+    }
+}

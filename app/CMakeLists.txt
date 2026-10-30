@@ -21,10 +21,17 @@ qt_add_qml_module(audium_ui
         qml/pages/BookDetailsPage.qml
         qml/pages/NeedsReviewPage.qml
         qml/pages/SettingsPage.qml
+        qml/pages/BooksPage.qml
+        qml/pages/EditMetadataPage.qml
+        qml/pages/SplitBookPage.qml
         qml/components/MiniPlayer.qml
         qml/components/BookCover.qml
         qml/components/BookTile.qml
         qml/components/BookRow.qml
+        qml/components/BookGrid.qml
+        qml/components/BookList.qml
+        qml/components/GroupGrid.qml
+        qml/components/Bookshelf.qml
         qml/components/SleepTimerButton.qml
         qml/components/TimeFormat.js
         qml/components/ReviewReasons.js

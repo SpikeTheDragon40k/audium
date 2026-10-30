@@ -14,6 +14,7 @@ use audium_core::position::resume_point;
 use audium_core::progress::{Position, ProgressTracker};
 use audium_core::sleep::{DEFAULT_FADE_MS, SleepTimer};
 use audium_core::{BookId, TrackId};
+use audium_storage::organize;
 use audium_storage::playback::{self, SessionRecord};
 use audium_storage::{ReadOnly, Writer, now_ms, read};
 use cxx_qt::{CxxQtType, Threading};
@@ -78,6 +79,36 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "playBook"]
         fn play_book(self: Pin<&mut PlaybackSession>, book_id: i64) -> bool;
+
+        /// Plays a library book from `position_ms` (book-wide), e.g. a chapter
+        /// or a bookmark; seeks if the book is already playing.
+        #[qinvokable]
+        #[cxx_name = "playBookAt"]
+        fn play_book_at(self: Pin<&mut PlaybackSession>, book_id: i64, position_ms: i64) -> bool;
+
+        /// Bookmarks the current position of the current book. Returns false
+        /// when no library book is playing.
+        #[qinvokable]
+        #[cxx_name = "addBookmark"]
+        fn add_bookmark(self: Pin<&mut PlaybackSession>) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "updateBookmark"]
+        fn update_bookmark(
+            self: Pin<&mut PlaybackSession>,
+            id: i64,
+            title: &QString,
+            note: &QString,
+        );
+
+        #[qinvokable]
+        #[cxx_name = "deleteBookmark"]
+        fn delete_bookmark(self: Pin<&mut PlaybackSession>, id: i64);
+
+        /// Seek within the current book (book-wide position).
+        #[qsignal]
+        #[cxx_name = "seekRequested"]
+        fn seek_requested(self: Pin<&mut PlaybackSession>, position_ms: i64);
 
         #[qinvokable]
         #[cxx_name = "startSleepTimer"]
@@ -337,7 +368,25 @@ impl qobject::PlaybackSession {
         }
     }
 
-    fn play_book(mut self: Pin<&mut Self>, book_id: i64) -> bool {
+    fn play_book(self: Pin<&mut Self>, book_id: i64) -> bool {
+        self.start_book(book_id, None)
+    }
+
+    fn play_book_at(mut self: Pin<&mut Self>, book_id: i64, position_ms: i64) -> bool {
+        // Already playing this book: just seek.
+        if self
+            .current
+            .as_ref()
+            .is_some_and(|c| c.book.0 == book_id && c.ready)
+        {
+            self.as_mut().seek_requested(position_ms.max(0));
+            return true;
+        }
+        self.start_book(book_id, Some(position_ms.max(0)))
+    }
+
+    /// Loads a book at `at` (book-wide), or where it was left.
+    fn start_book(mut self: Pin<&mut Self>, book_id: i64, at: Option<i64>) -> bool {
         let path = String::from(&self.database_path);
         let loaded = match load_book(&path, BookId(book_id)) {
             Ok(Some(l)) => l,
@@ -358,8 +407,12 @@ impl qobject::PlaybackSession {
             .iter()
             .map(|t| (t.id, t.duration_ms.max(0) as u64))
             .collect();
-        let start = match progress.filter(|p| !p.finished) {
-            Some(p) => resume_point(
+        let durations: Vec<u64> = ids.iter().map(|(_, d)| *d).collect();
+        let start = match (at, progress.filter(|p| !p.finished)) {
+            (Some(ms), _) => audium_core::position::track_position(&durations, ms as u64)
+                .map(|(i, o)| (i, o as i64))
+                .unwrap_or((0, 0)),
+            (None, Some(p)) => resume_point(
                 &ids,
                 p.track_id.as_ref(),
                 p.offset_ms.max(0) as u64,
@@ -367,7 +420,7 @@ impl qobject::PlaybackSession {
             )
             .map(|(i, o)| (i, o as i64))
             .unwrap_or((0, 0)),
-            None => (0, 0),
+            (None, None) => (0, 0),
         };
         let rate = speed.unwrap_or(1.0).clamp(0.5, 3.0);
         let book_ms = tracks
@@ -668,6 +721,53 @@ impl qobject::PlaybackSession {
                 }
             });
         }
+    }
+
+    fn add_bookmark(mut self: Pin<&mut Self>) -> bool {
+        let (Some(c), Some(pos)) = (self.current.as_ref(), self.position) else {
+            return false;
+        };
+        if !c.ready {
+            return false;
+        }
+        let book = c.book;
+        let track = c.tracks.get(pos.track_index).map(|t| t.id);
+        let now = now_ms();
+        if let Some(w) = &self.writer {
+            w.submit(move |db| {
+                if let Err(e) =
+                    organize::add_bookmark(db.conn(), book, track, pos.offset_ms, pos.book_ms, now)
+                {
+                    tracing::error!(error = %e, "cannot add bookmark");
+                }
+            });
+        }
+        self.as_mut().notify_after_writes();
+        true
+    }
+
+    fn update_bookmark(mut self: Pin<&mut Self>, id: i64, title: &QString, note: &QString) {
+        let (title, note) = (String::from(title), String::from(note));
+        let now = now_ms();
+        if let Some(w) = &self.writer {
+            w.submit(move |db| {
+                if let Err(e) = organize::update_bookmark(db.conn(), id, &title, &note, now) {
+                    tracing::error!(error = %e, "cannot update bookmark");
+                }
+            });
+        }
+        self.as_mut().notify_after_writes();
+    }
+
+    fn delete_bookmark(mut self: Pin<&mut Self>, id: i64) {
+        if let Some(w) = &self.writer {
+            w.submit(move |db| {
+                if let Err(e) = organize::delete_bookmark(db.conn(), id) {
+                    tracing::error!(error = %e, "cannot delete bookmark");
+                }
+            });
+        }
+        self.as_mut().notify_after_writes();
     }
 
     fn start_sleep_timer(mut self: Pin<&mut Self>, duration_ms: i64) {

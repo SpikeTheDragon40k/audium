@@ -22,6 +22,8 @@ pub mod qobject {
         type QUrl = cxx_qt_lib::QUrl;
         include!("cxx-qt-lib/qlist.h");
         type QList_QVariant = cxx_qt_lib::QList<cxx_qt_lib::QVariant>;
+        include!("cxx-qt-lib/qmap.h");
+        type QMap_QString_QVariant = cxx_qt_lib::QMap<cxx_qt_lib::QMapPair_QString_QVariant>;
     }
 
     extern "RustQt" {
@@ -51,6 +53,20 @@ pub mod qobject {
         #[qproperty(QList_QVariant, tracks, READ, NOTIFY)]
         /// List of {title, startMs}.
         #[qproperty(QList_QVariant, chapters, READ, NOTIFY)]
+        /// Lists of {id, name}, for links to author/narrator/collection pages.
+        #[qproperty(QList_QVariant, author_links, cxx_name = "authorLinks", READ, NOTIFY)]
+        #[qproperty(
+            QList_QVariant,
+            narrator_links,
+            cxx_name = "narratorLinks",
+            READ,
+            NOTIFY
+        )]
+        #[qproperty(QList_QVariant, collections, READ, NOTIFY)]
+        /// 0 when the book is in no series.
+        #[qproperty(i64, series_id, cxx_name = "seriesId", READ, NOTIFY)]
+        /// Current metadata overrides as {field: value}.
+        #[qproperty(QMap_QString_QVariant, overrides, READ, NOTIFY)]
         type BookDetails = super::BookDetailsRust;
     }
 
@@ -86,6 +102,11 @@ pub struct BookDetailsRust {
     review_reasons: QStringList,
     tracks: QList<QVariant>,
     chapters: QList<QVariant>,
+    author_links: QList<QVariant>,
+    narrator_links: QList<QVariant>,
+    collections: QList<QVariant>,
+    series_id: i64,
+    overrides: QMap<QMapPair_QString_QVariant>,
 }
 
 impl cxx_qt::Initialize for qobject::BookDetails {
@@ -107,7 +128,13 @@ fn map(entries: Vec<(&str, QVariant)>) -> QVariant {
     QVariant::from(&m)
 }
 
-type Loaded = (BookDetail, Vec<TrackRow>, Vec<ChapterRow>);
+type Loaded = (
+    BookDetail,
+    Vec<TrackRow>,
+    Vec<ChapterRow>,
+    read::BookLinks,
+    std::collections::HashMap<String, String>,
+);
 
 fn load(path: &str, id: i64) -> Result<Option<Loaded>, audium_storage::StorageError> {
     if path.is_empty() || id <= 0 {
@@ -122,6 +149,8 @@ fn load(path: &str, id: i64) -> Result<Option<Loaded>, audium_storage::StorageEr
         detail,
         read::tracks(db.conn(), id)?,
         read::chapters(db.conn(), id)?,
+        read::book_links(db.conn(), id)?,
+        audium_storage::organize::overrides(db.conn(), id)?,
     )))
 }
 
@@ -131,7 +160,7 @@ impl qobject::BookDetails {
             tracing::error!(error = %e, "cannot load book");
             None
         });
-        let Some((d, tracks, chapters)) = loaded else {
+        let Some((d, tracks, chapters, links, overrides)) = loaded else {
             set_ro!(self, valid, valid_changed, false);
             return;
         };
@@ -145,6 +174,7 @@ impl qobject::BookDetails {
             .iter()
             .map(|t| {
                 map(vec![
+                    ("trackId", QVariant::from(&t.id.0)),
                     (
                         "title",
                         QVariant::from(&qs(t.title.as_deref().unwrap_or(&t.display_path))),
@@ -222,6 +252,47 @@ impl qobject::BookDetails {
         );
         set_ro!(self, tracks, tracks_changed, track_list);
         set_ro!(self, chapters, chapters_changed, chapter_list);
+        let link_list = |items: &[(i64, String)]| -> QList<QVariant> {
+            items
+                .iter()
+                .map(|(id, name)| {
+                    map(vec![
+                        ("id", QVariant::from(id)),
+                        ("name", QVariant::from(&qs(name))),
+                    ])
+                })
+                .collect::<Vec<_>>()
+                .into()
+        };
+        let mut override_map = QMap::<QMapPair_QString_QVariant>::default();
+        for (k, v) in &overrides {
+            override_map.insert(qs(k), QVariant::from(&qs(v)));
+        }
+        set_ro!(
+            self,
+            author_links,
+            author_links_changed,
+            link_list(&links.authors)
+        );
+        set_ro!(
+            self,
+            narrator_links,
+            narrator_links_changed,
+            link_list(&links.narrators)
+        );
+        set_ro!(
+            self,
+            collections,
+            collections_changed,
+            link_list(&links.collections)
+        );
+        set_ro!(
+            self,
+            series_id,
+            series_id_changed,
+            links.series.as_ref().map_or(0, |s| s.0)
+        );
+        set_ro!(self, overrides, overrides_changed, override_map);
         set_ro!(self, valid, valid_changed, true);
     }
 }

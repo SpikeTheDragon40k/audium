@@ -9,7 +9,7 @@ pub mod grouping;
 pub mod hash;
 pub mod scan;
 
-pub use scan::{Phase, ScanError, ScanOptions, ScanProgress, ScanSummary, scan_library};
+pub use scan::{Phase, ScanError, ScanOptions, ScanProgress, ScanSummary, fresh_uid, scan_library};
 
 /// Version of the grouping and metadata rules. Raise it whenever they change
 /// so that existing libraries are re-read once (a forced scan), since

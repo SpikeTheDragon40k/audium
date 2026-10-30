@@ -173,6 +173,25 @@ pub fn group_folder(group: &DirGroup, infos: &[Option<FileInfo>]) -> Vec<Candida
     candidates
 }
 
+/// A book whose grouping the user fixed (merged or split): all its readable
+/// files, in tag or natural order. `None` if none is readable.
+pub fn locked_candidate(group: &DirGroup, infos: &[Option<FileInfo>]) -> Option<Candidate> {
+    let readable: Vec<usize> = (0..group.files.len())
+        .filter(|&i| infos.get(i).is_some_and(Option::is_some))
+        .collect();
+    if readable.is_empty() {
+        return None;
+    }
+    let (files, ordered_by_tags, inconsistent_numbering) = order(group, infos, readable);
+    Some(Candidate {
+        files,
+        kind: GroupKind::Folder,
+        folder_guess: group.rel_dir.clone(),
+        ordered_by_tags,
+        inconsistent_numbering,
+    })
+}
+
 /// Splits a folder's container files into books: those sharing an album tag
 /// are one book; untagged ones are one book only when every file has a
 /// unique track number and they agree on a track total above 1 (otherwise

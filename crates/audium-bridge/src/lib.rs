@@ -20,6 +20,8 @@ macro_rules! set_ro {
 pub mod app_info;
 pub mod book_details;
 pub mod book_list_model;
+pub mod bookmark_list_model;
 mod convert;
+pub mod group_list_model;
 pub mod library_controller;
 pub mod playback_session;

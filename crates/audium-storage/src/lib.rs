@@ -3,7 +3,9 @@
 //! The database is never recreated silently: a failed or unknown migration
 //! leaves the file untouched and returns an error for the UI to show.
 
+pub mod fts;
 mod migrate;
+pub mod organize;
 pub mod paths;
 pub mod playback;
 pub mod read;

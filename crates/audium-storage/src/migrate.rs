@@ -12,13 +12,20 @@ pub struct Migration {
     pub sql: &'static str,
 }
 
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "initial",
-    sql: include_str!("../../../migrations/0001_initial.sql"),
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "initial",
+        sql: include_str!("../../../migrations/0001_initial.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "search",
+        sql: include_str!("../../../migrations/0002_search.sql"),
+    },
+];
 
-pub const LATEST_VERSION: i64 = 1;
+pub const LATEST_VERSION: i64 = 2;
 
 pub(crate) fn run(conn: &mut Connection, path: &Path, migrations: &[Migration]) -> Result<()> {
     let latest = migrations.last().map_or(0, |m| m.version);

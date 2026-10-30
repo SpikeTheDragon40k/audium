@@ -8,25 +8,22 @@ All builds run locally; GitHub hosts only the code and the Releases (see ARCHITE
 
 ## Current status
 
-- **Done:** environment check and design docs; M0, M1 and M2 on Linux (2026-10-29); **M3 on Linux** (2026-10-30, reviewed).
-- **Next:** Milestone 4 (organization).
+- **Done:** environment check and design docs; M0, M1 and M2 on Linux (2026-10-29); M3 on Linux (2026-10-30, reviewed); **M4 on Linux** (2026-10-30, reviewed).
+- **Next:** Milestone 5 (insights and portability).
 - **Remote:** private GitHub repo `SpikeTheDragon40k/audium`, used for code and Releases only (no GitHub Actions).
 
 ## Resume here (updated 2026-10-30)
 
 State:
-- Branch `main`. M0–M3 are committed and pushed (M3 reviewed and tested by the maintainer on 2026-10-30).
+- Branch `main`. M0–M4 are committed and pushed (M4 reviewed and tried by the maintainer on 2026-10-30).
 - `scripts/check.sh` passes.
 
-Next: Milestone 4 (Organization). Suggested order, smallest slices first:
-1. Search: an FTS5 table (migration 0002), a `BookFilter::Search(text)` query, and a search field (Ctrl+F replaces the placeholder notification).
-2. Sorting (title, author, recently played, added) in `BookListModel`.
-3. Author and series pages (lists from `contributors`/`series`), then collections.
-4. Bookmarks with notes: `B` adds one at the current position (via the session); a list per book with chapter name; jump/edit/delete.
-5. A chapter browser in Book Details (jump to a chapter).
-6. The metadata override editor (`overrides` rows; lists are newline-separated, as `scan::parse_overrides` expects), then a rescan of that book.
-7. Merge and split from Needs Review; set `books.grouping_locked` and make the scanner honor it (currently ignored); "dismiss" for review items.
-8. Bookshelf view (covers on shelves grouped by series/author/collection, progress bar under each) as a third view toggle.
+Next: Milestone 5 (Insights and portability):
+1. Stats queries in `audium-storage` from `sessions`: listened today, this week, this month and all time; current streak (consecutive days with listening); books finished; per-book totals; daily totals for a chart. Unit tests on synthetic sessions, including day boundaries and local time zones.
+2. `StatsModel` (bridge) and a Stats page (tiles plus a simple bar chart in QML Shapes/Canvas).
+3. JSON export: versioned schema (`schema_version`); progress, bookmarks, sessions, overrides, settings, collections. Books are identified by fingerprint (normalized title + author + total duration + partial hashes).
+4. JSON import: match by fingerprint, preview conflicts (newer progress, duplicate bookmarks), then apply in one transaction. Round-trip test.
+5. Settings → back up the database now (`VACUUM INTO`, with a file dialog).
 
 ## M0 — Foundation
 - Cargo workspace with the 5 crates; `rust-toolchain.toml` (1.99.1).
@@ -282,6 +279,50 @@ Open / known limitations:
 - Bookmarks with notes (`B` key).
 - Override editor; merge and split from Needs Review.
 - Bookshelf view with a toggle against the grid.
+
+### M4 status (2026-10-30)
+Done and verified locally with `scripts/check.sh` (all steps pass).
+
+What's in it:
+- **Search:** FTS5, prefix matching, accents folded, across title, author, narrator and series. Ctrl+F opens Books and focuses the field.
+- **Sorting:** title, author (then series order), recently played, recently added.
+- **Browse:** Authors and Series tabs (cards with cover and count) open a book page per group; series list in reading order. Author, narrator and series names on the details page are links.
+- **Collections:** create, rename and delete in the Collections tab; add and remove from the details page (menu with checkmarks, "New Collection…"); the book's collections are shown as chips.
+- **Bookmarks:** `B` adds one at the current position (with a notification). The details page lists them with time, chapter, title and note; click to play from there; edit or delete.
+- **Chapter browser:** clicking a chapter on the details page plays from it (or seeks, if the book is already playing).
+- **Metadata editor:** title, subtitle, authors, narrators, series, number, year, genre, description. Stored as overrides, never written to files; an emptied field returns to the tags; the book is then re-read by itself.
+- **Needs Review:** select books and merge them; mark as reviewed. Splitting is on the details page (check the files that belong to a new book).
+- **Merge and split stay** across rescans (`grouping_locked`), including merges across folders.
+- **Bookshelf view:** a third Books view, with covers on shelves grouped by series (plus "Not in a series"), author or collection, and a progress bar under each cover.
+
+Tests:
+- Rust:
+  - search (prefix, accents, narrator, series, all words, operators as text), index kept in sync on rescan and removal, migration 2 indexing existing books;
+  - sorting and scopes;
+  - collections, bookmarks, overrides, dismissal;
+  - merge (tracks, bookmarks, progress, collections move) and split (bookmarks follow);
+  - the scanner keeping merged (across folders) and split books, a new file beside a locked book, overrides via a one-book re-read.
+- Qt:
+  - session bookmarks (position, track, edit, delete) and `playBookAt` (load at a position, or seek);
+  - the UI test now also clicks covers in the Books grid and the bookshelf, searches and checks the grid narrows, opens author and series cards, the Collections tab and the metadata editor.
+
+Bugs found and fixed during M4:
+- **Settings could not be closed** (found by the maintainer). It opened as a column beside the library, and in a wide window Kirigami gives such a column no back or close button. The metadata editor and split page had the same problem when left without saving. All three now open as layers over the window, which have a back button, and Escape closes a layer too. `test_bridge` opens Settings and closes it by clicking the back button like a user (after the slide-in finishes), then with Escape, and does the same for the editor. Also checked under the Breeze desktop style.
+- **Views didn't update after a model reload.** All three Rust list models returned their `count` property from `rowCount()`, but updated it after `endResetModel()`. Views showed the old number of items after a search, scan or progress change. Found by the new search UI test; now there's an explicit check of the row count seen at `modelReset`.
+- **Test realism:** the UI test now moves the mouse before clicking. Without that, a tooltip from the previous cover (still "hovered", because the test never moved the pointer) swallowed the first click, which never happens with a real mouse.
+
+Verified by hand:
+- Migration to schema 2 on a *copy* of the maintainer's database: backup written, search finds their books, progress and sessions intact, no warnings.
+
+Not verified:
+- **Interactive use by a person:** editing, merging, splitting, collections, bookmarks, the bookshelf look.
+- **Layout at different window sizes:** see M7's responsive pass.
+
+Open / known limitations:
+- **A new untagged file beside a locked (merged) book** takes its title from the folder name, because the folder looks like it holds a single book.
+- **A merged book's metadata comes from the majority of its files' tags.** Edit it if that's wrong.
+- **Splitting doesn't move progress:** the new book starts without progress, and the original keeps it, resuming by book position if its saved track moved away.
+- **Narrators have no tab:** narrator pages are reached via the details page links.
 
 ## M5 — Insights and portability
 - Stats page:

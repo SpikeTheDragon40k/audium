@@ -13,7 +13,7 @@
 //! All changes are applied in one transaction at the end, so a cancelled or
 //! failed scan leaves the database as it was.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -27,13 +27,14 @@ use audium_metadata::{
 };
 use audium_storage::write::{
     self, ApplyReport, BookMetadata, BookTarget, BookWrite, ChapterWrite, ExistingTrack, Library,
-    ScanChanges, TrackWrite,
+    ScanChanges, Snapshot, TrackWrite,
 };
 use audium_storage::{Database, StorageError};
 
 use crate::confidence::assess;
+use crate::discover::FoundFile;
 use crate::discover::{DirGroup, DiscoverError, discover};
-use crate::grouping::{Candidate, group_folder};
+use crate::grouping::{Candidate, group_folder, locked_candidate};
 use crate::hash::partial_hash;
 
 #[derive(Debug, Clone)]
@@ -43,6 +44,9 @@ pub struct ScanOptions {
     pub threads: usize,
     /// Re-read every folder, even unchanged ones.
     pub force: bool,
+    /// Re-read these folders even if unchanged (e.g. after editing a book's
+    /// metadata). A folder matches if it is a group's folder or holds files.
+    pub force_dirs: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,7 +136,15 @@ pub fn scan_library(
     let mut changes = ScanChanges::default();
     let mut changed = Vec::new();
     for group in groups {
-        match unchanged_tracks(&group, &by_path, &tracks_of_book).filter(|_| !opts.force) {
+        let forced = opts.force
+            || opts.force_dirs.iter().any(|d| {
+                *d == group.dir
+                    || group
+                        .files
+                        .iter()
+                        .any(|f| f.path.parent() == Some(d.as_path()))
+            });
+        match unchanged_tracks(&group, &by_path, &tracks_of_book).filter(|_| !forced) {
             Some(ids) => {
                 summary.folders_unchanged += 1;
                 changes.present_tracks.extend(ids);
@@ -177,103 +189,106 @@ pub fn scan_library(
     }
     let book_of: HashMap<TrackId, BookId> =
         snapshot.tracks.iter().map(|t| (t.id, t.book_id)).collect();
-    let mut reused: HashSet<TrackId> = HashSet::new();
-    let mut claimed: HashSet<BookId> = HashSet::new();
-    let mut uids = UidSource::new(&library.path);
+
+    let mut ctx = Ctx {
+        snapshot: &snapshot,
+        by_path: &by_path,
+        book_of: &book_of,
+        opts,
+        moved_from,
+        reused: HashSet::new(),
+        claimed: HashSet::new(),
+        uids: UidSource::new(&library.path),
+        moved_files: 0,
+    };
+    let locked_of = |path: &Path| {
+        by_path
+            .get(path)
+            .map(|t| t.book_id)
+            .filter(|b| snapshot.books.get(b).is_some_and(|x| x.grouping_locked))
+    };
+    // Files of books the user merged or split, collected across folders.
+    let mut locked: BTreeMap<BookId, (Vec<FoundFile>, Vec<FileRead>)> = BTreeMap::new();
 
     for group in &changed {
         let per_file: Vec<FileRead> = (0..group.files.len())
             .filter_map(|_| results.next())
             .collect();
-        let infos: Vec<Option<FileInfo>> = per_file.iter().map(|(i, _)| i.clone()).collect();
-        let unreadable = infos.iter().filter(|i| i.is_none()).count();
-        summary.unreadable_files += unreadable;
-        let candidates = group_folder(group, &infos);
-        let sole_book = candidates.len() == 1;
-        let sidecars = if sole_book {
+        summary.unreadable_files += per_file.iter().filter(|(i, _)| i.is_none()).count();
+
+        // Locked books keep their files; the rest is grouped as usual.
+        let mut free = DirGroup {
+            dir: group.dir.clone(),
+            rel_dir: group.rel_dir.clone(),
+            files: Vec::new(),
+        };
+        let mut free_reads = Vec::new();
+        let mut has_locked = false;
+        for (file, read) in group.files.iter().zip(per_file) {
+            match locked_of(&file.path) {
+                Some(book) => {
+                    has_locked = true;
+                    let entry = locked.entry(book).or_default();
+                    entry.0.push(file.clone());
+                    entry.1.push(read);
+                }
+                None => {
+                    free.files.push(file.clone());
+                    free_reads.push(read);
+                }
+            }
+        }
+        let infos: Vec<Option<FileInfo>> = free_reads.iter().map(|(i, _)| i.clone()).collect();
+        let unreadable = infos.iter().any(Option::is_none);
+        let candidates = group_folder(&free, &infos);
+        // Sidecars describe a folder's only book.
+        let sidecars = if candidates.len() == 1 && !has_locked {
             read_sidecars(&group.dir)
         } else {
             Sidecars::default()
         };
-
         for candidate in &candidates {
-            let mut tracks = Vec::with_capacity(candidate.files.len());
-            for &i in &candidate.files {
-                let file = &group.files[i];
-                let info = infos[i].as_ref();
-                let stored = by_path.get(file.path.as_path()).copied();
-                let hash = per_file[i]
-                    .1
-                    .clone()
-                    .or_else(|| stored.and_then(|t| t.partial_hash.clone()));
-                let existing = stored.map(|t| t.id).or_else(|| {
-                    let ids = moved_from.get_mut(&(file.size, hash.clone()?))?;
-                    let id = ids.pop()?;
-                    summary.moved_files += 1;
-                    Some(id)
-                });
-                if let Some(id) = existing {
-                    reused.insert(id);
-                }
-                tracks.push(TrackWrite {
-                    existing,
-                    path: file.path.clone(),
-                    size: file.size,
-                    mtime_ms: file.mtime_ms,
-                    partial_hash: hash,
-                    duration_ms: info
-                        .map_or(0, |f| i64::try_from(f.duration_ms).unwrap_or(i64::MAX)),
-                    disc: info.and_then(|f| f.tags.disc).or(file.disc_hint),
-                    number: info.and_then(|f| f.tags.track),
-                    title: info.and_then(|f| f.tags.title.clone()),
-                });
-            }
-
-            let user_data = |b: BookId| snapshot.books.get(&b).is_some_and(|x| x.has_user_data);
-            let target = pick_target(&tracks, &book_of, &user_data, &mut claimed);
-            let overrides = match &target {
-                Some(id) => snapshot
-                    .books
-                    .get(id)
-                    .map(|b| parse_overrides(&b.overrides))
-                    .unwrap_or_default(),
-                None => Overrides::default(),
-            };
-            let target = match target {
-                Some(id) => BookTarget::Existing(id),
-                None => BookTarget::New(uids.next()),
-            };
-            let uid = match &target {
-                BookTarget::Existing(id) => snapshot.books.get(id).map(|b| b.uid.clone()),
-                BookTarget::New(uid) => Some(uid.clone()),
-            };
-            let book = build_book(
-                group,
+            changes.books.push(ctx.emit(
+                &free,
                 candidate,
-                &infos,
+                &free_reads,
                 &sidecars,
-                &overrides,
-                unreadable > 0,
-                target,
-                tracks,
-            );
-            let cover_path = uid.and_then(|uid| {
-                let cover = sidecars
-                    .cover
-                    .as_deref()
-                    .and_then(read_cover_file)
-                    .or_else(|| {
-                        candidate
-                            .files
-                            .iter()
-                            .take(3)
-                            .find_map(|&i| read_embedded_cover(&group.files[i].path))
-                    })?;
-                store_cover(&opts.cache_dir, &uid, &cover)
-            });
-            changes.books.push(BookWrite { cover_path, ..book });
+                unreadable,
+                None,
+            ));
         }
     }
+
+    for (book, (files, reads)) in locked {
+        let dir = files[0]
+            .path
+            .parent()
+            .map(Path::to_owned)
+            .unwrap_or_default();
+        let group = DirGroup {
+            rel_dir: dir
+                .strip_prefix(&library.path)
+                .map(Path::to_owned)
+                .unwrap_or_default(),
+            dir,
+            files,
+        };
+        let infos: Vec<Option<FileInfo>> = reads.iter().map(|(i, _)| i.clone()).collect();
+        let Some(candidate) = locked_candidate(&group, &infos) else {
+            continue; // nothing readable left: its tracks are kept as they are
+        };
+        let unreadable = infos.iter().any(Option::is_none);
+        changes.books.push(ctx.emit(
+            &group,
+            &candidate,
+            &reads,
+            &Sidecars::default(),
+            unreadable,
+            Some(book),
+        ));
+    }
+    summary.moved_files = ctx.moved_files;
+    let reused = ctx.reused;
 
     changes.missing_tracks = snapshot
         .tracks
@@ -296,6 +311,117 @@ pub fn scan_library(
     summary.report = write::apply(db, library.id, &changes)?;
     tracing::info!(?summary, "library scanned");
     Ok(summary)
+}
+
+/// State shared while turning candidates into book writes.
+struct Ctx<'a> {
+    snapshot: &'a Snapshot,
+    by_path: &'a HashMap<&'a Path, &'a ExistingTrack>,
+    book_of: &'a HashMap<TrackId, BookId>,
+    opts: &'a ScanOptions,
+    moved_from: HashMap<(i64, Vec<u8>), Vec<TrackId>>,
+    reused: HashSet<TrackId>,
+    claimed: HashSet<BookId>,
+    uids: UidSource,
+    moved_files: usize,
+}
+
+impl Ctx<'_> {
+    /// One candidate book -> a book write: matches its files to stored
+    /// tracks (by path, or as moved files), picks the stored book it
+    /// continues (or `locked_target`), resolves metadata and caches a cover.
+    fn emit(
+        &mut self,
+        group: &DirGroup,
+        candidate: &Candidate,
+        reads: &[FileRead],
+        sidecars: &Sidecars,
+        unreadable: bool,
+        locked_target: Option<BookId>,
+    ) -> BookWrite {
+        let infos: Vec<Option<FileInfo>> = reads.iter().map(|(i, _)| i.clone()).collect();
+        let mut tracks = Vec::with_capacity(candidate.files.len());
+        for &i in &candidate.files {
+            let file = &group.files[i];
+            let info = infos[i].as_ref();
+            let stored = self.by_path.get(file.path.as_path()).copied();
+            let hash = reads[i]
+                .1
+                .clone()
+                .or_else(|| stored.and_then(|t| t.partial_hash.clone()));
+            let existing = stored.map(|t| t.id).or_else(|| {
+                let ids = self.moved_from.get_mut(&(file.size, hash.clone()?))?;
+                let id = ids.pop()?;
+                self.moved_files += 1;
+                Some(id)
+            });
+            if let Some(id) = existing {
+                self.reused.insert(id);
+            }
+            tracks.push(TrackWrite {
+                existing,
+                path: file.path.clone(),
+                size: file.size,
+                mtime_ms: file.mtime_ms,
+                partial_hash: hash,
+                duration_ms: info.map_or(0, |f| i64::try_from(f.duration_ms).unwrap_or(i64::MAX)),
+                disc: info.and_then(|f| f.tags.disc).or(file.disc_hint),
+                number: info.and_then(|f| f.tags.track),
+                title: info.and_then(|f| f.tags.title.clone()),
+            });
+        }
+
+        let target = match locked_target {
+            Some(book) => {
+                self.claimed.insert(book);
+                Some(book)
+            }
+            None => {
+                let snapshot = self.snapshot;
+                // Locked books are never taken over by other candidates.
+                let available =
+                    |b: BookId| snapshot.books.get(&b).is_some_and(|x| !x.grouping_locked);
+                let user_data = |b: BookId| snapshot.books.get(&b).is_some_and(|x| x.has_user_data);
+                let book_of: HashMap<TrackId, BookId> = tracks
+                    .iter()
+                    .filter_map(|t| t.existing)
+                    .filter_map(|id| self.book_of.get(&id).map(|b| (id, *b)))
+                    .filter(|(_, b)| available(*b))
+                    .collect();
+                pick_target(&tracks, &book_of, &user_data, &mut self.claimed)
+            }
+        };
+        let overrides = target
+            .and_then(|id| self.snapshot.books.get(&id))
+            .map(|b| parse_overrides(&b.overrides))
+            .unwrap_or_default();
+        let target = match target {
+            Some(id) => BookTarget::Existing(id),
+            None => BookTarget::New(self.uids.next()),
+        };
+        let uid = match &target {
+            BookTarget::Existing(id) => self.snapshot.books.get(id).map(|b| b.uid.clone()),
+            BookTarget::New(uid) => Some(uid.clone()),
+        };
+        let book = build_book(
+            group, candidate, &infos, sidecars, &overrides, unreadable, target, tracks,
+        );
+        let cover_path = uid.and_then(|uid| {
+            let cover = sidecars
+                .cover
+                .as_deref()
+                .and_then(read_cover_file)
+                .or_else(|| {
+                    candidate
+                        .files
+                        .iter()
+                        .take(3)
+                        .find_map(|&i| read_embedded_cover(&group.files[i].path))
+                })?;
+            store_cover(&self.opts.cache_dir, &uid, &cover)
+        });
+        BookWrite { cover_path, ..book }
+    }
 }
 
 /// The stored tracks of a folder if nothing in it changed: same files with
@@ -596,6 +722,11 @@ fn store_cover(cache_dir: &Path, uid: &BookUid, cover: &Cover) -> Option<String>
         }
     }
     path.to_str().map(str::to_owned)
+}
+
+/// A new, unique book uid (for books the user creates, e.g. by splitting).
+pub fn fresh_uid(context: &Path) -> BookUid {
+    UidSource::new(context).next()
 }
 
 /// Book uids from the clock, the process id, the root and a counter.

@@ -16,9 +16,159 @@ Kirigami.ScrollablePage {
     required property int revision
 
     signal nowPlayingRequested()
+    /// kind: 1 author, 2 narrator, 3 series, 4 collection
+    signal groupRequested(int kind, var groupId, string name)
+    signal editRequested(var bookId)
+    signal splitRequested(var bookId)
+
+    function escapeHtml(s) {
+        return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+    }
+    function links(kind, items) {
+        return items.map(i => `<a href="${kind}:${i.id}">${escapeHtml(i.name)}</a>`).join(", ")
+    }
+    function openLink(link) {
+        const [kind, id] = link.split(":")
+        const all = kind === "1" ? details.authorLinks : kind === "2" ? details.narratorLinks : []
+        const item = all.find(i => String(i.id) === id)
+        if (kind === "3") {
+            page.groupRequested(3, details.seriesId, details.series)
+        } else if (item) {
+            page.groupRequested(Number(kind), item.id, item.name)
+        }
+    }
+    function play(positionMs) {
+        if (page.session.playBookAt(details.bookId, positionMs)) {
+            page.nowPlayingRequested()
+        }
+    }
 
     objectName: "bookDetailsPage"
     title: details.valid ? details.title : i18nc("@title", "Book")
+
+    actions: [
+        Kirigami.Action {
+            icon.name: "document-edit"
+            text: i18nc("@action:button", "Edit Metadata…")
+            enabled: details.valid
+            onTriggered: page.editRequested(details.bookId)
+        },
+        Kirigami.Action {
+            icon.name: "bookmarks"
+            text: i18nc("@action:button", "Add to Collection")
+            enabled: details.valid
+            onTriggered: collectionMenu.popup()
+        },
+        Kirigami.Action {
+            icon.name: "split"
+            text: i18nc("@action:button", "Split Book…")
+            enabled: details.valid && details.tracks.length > 1
+            onTriggered: page.splitRequested(details.bookId)
+        },
+        Kirigami.Action {
+            icon.name: "checkmark"
+            text: i18nc("@action:button", "Mark as Reviewed")
+            enabled: details.valid && details.reviewReasons.length > 0
+            onTriggered: {
+                const error = page.library.dismissReview(details.bookId)
+                if (error.length > 0) {
+                    applicationWindow().showPassiveNotification(error)
+                }
+            }
+        }
+    ]
+
+    GroupListModel {
+        id: allCollections
+        databasePath: page.library.databasePath
+        revision: page.revision
+        kind: 3
+    }
+
+    QQC2.Menu {
+        id: collectionMenu
+        Instantiator {
+            model: allCollections
+            delegate: QQC2.MenuItem {
+                required property var groupId
+                required property string name
+                text: name
+                checkable: true
+                checked: details.collections.some(c => c.id === groupId)
+                onTriggered: {
+                    const error = checked ? page.library.addToCollection(groupId, details.bookId)
+                                          : page.library.removeFromCollection(groupId, details.bookId)
+                    if (error.length > 0) {
+                        applicationWindow().showPassiveNotification(error)
+                    }
+                }
+            }
+            onObjectAdded: (index, object) => collectionMenu.insertItem(index, object)
+            onObjectRemoved: (index, object) => collectionMenu.removeItem(object)
+        }
+        QQC2.MenuSeparator {}
+        QQC2.MenuItem {
+            icon.name: "list-add"
+            text: i18nc("@action:inmenu", "New Collection…")
+            onTriggered: newCollectionDialog.open()
+        }
+    }
+
+    Kirigami.PromptDialog {
+        id: newCollectionDialog
+        title: i18nc("@title:dialog", "New Collection")
+        standardButtons: Kirigami.Dialog.Ok | Kirigami.Dialog.Cancel
+        onOpened: newCollectionName.forceActiveFocus()
+        QQC2.TextField {
+            id: newCollectionName
+            placeholderText: i18nc("@info:placeholder", "Name")
+            onAccepted: newCollectionDialog.accept()
+        }
+        onAccepted: {
+            const id = page.library.createCollection(newCollectionName.text)
+            if (id > 0) {
+                page.library.addToCollection(id, details.bookId)
+            }
+            newCollectionName.text = ""
+        }
+    }
+
+    BookmarkListModel {
+        id: bookmarks
+        databasePath: page.library.databasePath
+        revision: page.revision
+        bookId: page.bookId
+    }
+
+    Kirigami.Dialog {
+        id: bookmarkDialog
+        property var bookmarkId: 0
+        function edit(id, title, note) {
+            bookmarkId = id
+            bookmarkTitle.text = title
+            bookmarkNote.text = note
+            open()
+        }
+        title: i18nc("@title:dialog", "Edit Bookmark")
+        standardButtons: Kirigami.Dialog.Save | Kirigami.Dialog.Cancel
+        padding: Kirigami.Units.largeSpacing
+        ColumnLayout {
+            QQC2.TextField {
+                id: bookmarkTitle
+                Layout.fillWidth: true
+                Layout.preferredWidth: Kirigami.Units.gridUnit * 20
+                placeholderText: i18nc("@info:placeholder", "Title")
+            }
+            QQC2.TextArea {
+                id: bookmarkNote
+                Layout.fillWidth: true
+                Layout.preferredHeight: Kirigami.Units.gridUnit * 6
+                placeholderText: i18nc("@info:placeholder", "Note")
+                wrapMode: TextEdit.Wrap
+            }
+        }
+        onAccepted: page.session.updateBookmark(bookmarkId, bookmarkTitle.text, bookmarkNote.text)
+    }
 
     BookDetails {
         id: details
@@ -76,22 +226,48 @@ Kirigami.ScrollablePage {
                 }
                 QQC2.Label {
                     Layout.fillWidth: true
-                    visible: details.authors.length > 0
-                    text: i18nc("@info", "by %1", details.authors)
+                    visible: details.authorLinks.length > 0
+                    text: i18nc("@info %1 is a list of links", "by %1", page.links(1, details.authorLinks))
+                    textFormat: Text.StyledText
                     wrapMode: Text.Wrap
+                    onLinkActivated: link => page.openLink(link)
+                    HoverHandler { cursorShape: parent.hoveredLink ? Qt.PointingHandCursor : Qt.ArrowCursor }
                 }
                 QQC2.Label {
                     Layout.fillWidth: true
-                    visible: details.narrators.length > 0
-                    text: i18nc("@info", "Read by %1", details.narrators)
+                    visible: details.narratorLinks.length > 0
+                    text: i18nc("@info %1 is a list of links", "Read by %1", page.links(2, details.narratorLinks))
+                    textFormat: Text.StyledText
                     wrapMode: Text.Wrap
                     color: Kirigami.Theme.disabledTextColor
+                    onLinkActivated: link => page.openLink(link)
+                    HoverHandler { cursorShape: parent.hoveredLink ? Qt.PointingHandCursor : Qt.ArrowCursor }
                 }
                 QQC2.Label {
                     Layout.fillWidth: true
                     visible: details.series.length > 0
-                    text: i18nc("@info", "Series: %1", details.series)
+                    text: i18nc("@info %1 is a link", "Series: %1", `<a href="3:${details.seriesId}">${page.escapeHtml(details.series)}</a>`)
+                    textFormat: Text.StyledText
                     color: Kirigami.Theme.disabledTextColor
+                    onLinkActivated: link => page.openLink(link)
+                    HoverHandler { cursorShape: parent.hoveredLink ? Qt.PointingHandCursor : Qt.ArrowCursor }
+                }
+                Flow {
+                    Layout.fillWidth: true
+                    visible: details.collections.length > 0
+                    spacing: Kirigami.Units.smallSpacing
+                    Repeater {
+                        model: details.collections
+                        delegate: Kirigami.Chip {
+                            required property var modelData
+                            text: modelData.name
+                            icon.name: "bookmarks"
+                            checkable: false
+                            closable: true
+                            onClicked: page.groupRequested(4, modelData.id, modelData.name)
+                            onRemoved: page.library.removeFromCollection(modelData.id, details.bookId)
+                        }
+                    }
                 }
                 QQC2.Label {
                     Layout.fillWidth: true
@@ -151,19 +327,93 @@ Kirigami.ScrollablePage {
             visible: details.chapters.length > 1
             text: i18ncp("@title:group", "%1 Chapter", "%1 Chapters", details.chapters.length)
         }
+        // Chapter browser: click to play from a chapter.
         Repeater {
             model: details.chapters.length > 1 ? details.chapters : []
-            delegate: RowLayout {
+            delegate: QQC2.ItemDelegate {
+                id: chapterRow
                 required property var modelData
                 Layout.fillWidth: true
-                QQC2.Label {
-                    Layout.fillWidth: true
-                    text: modelData.title
-                    elide: Text.ElideRight
+                objectName: "chapterRow"
+                enabled: details.available
+                onClicked: page.play(modelData.startMs)
+                QQC2.ToolTip.text: i18nc("@info:tooltip", "Play from here")
+                QQC2.ToolTip.visible: hovered
+                QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+                contentItem: RowLayout {
+                    QQC2.Label {
+                        Layout.fillWidth: true
+                        text: chapterRow.modelData.title
+                        elide: Text.ElideRight
+                    }
+                    QQC2.Label {
+                        text: TimeFormat.format(chapterRow.modelData.startMs)
+                        color: Kirigami.Theme.disabledTextColor
+                    }
                 }
-                QQC2.Label {
-                    text: TimeFormat.format(modelData.startMs)
-                    color: Kirigami.Theme.disabledTextColor
+            }
+        }
+
+        Kirigami.ListSectionHeader {
+            Layout.fillWidth: true
+            visible: bookmarks.count > 0
+            text: i18ncp("@title:group", "%1 Bookmark", "%1 Bookmarks", bookmarks.count)
+        }
+        Repeater {
+            model: bookmarks
+            delegate: QQC2.ItemDelegate {
+                id: bookmarkRow
+                required property var bookmarkId
+                required property string title
+                required property string note
+                required property real positionMs
+                required property string chapterTitle
+                Layout.fillWidth: true
+                objectName: "bookmarkRow"
+                enabled: details.available
+                onClicked: page.play(positionMs)
+                contentItem: RowLayout {
+                    Kirigami.Icon {
+                        source: "bookmark-new"
+                        Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                        Layout.preferredHeight: Layout.preferredWidth
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 0
+                        QQC2.Label {
+                            Layout.fillWidth: true
+                            text: bookmarkRow.title.length > 0 ? bookmarkRow.title
+                                : bookmarkRow.chapterTitle.length > 0 ? bookmarkRow.chapterTitle
+                                : i18nc("@info untitled bookmark", "Bookmark")
+                            elide: Text.ElideRight
+                        }
+                        QQC2.Label {
+                            Layout.fillWidth: true
+                            text: [TimeFormat.format(bookmarkRow.positionMs),
+                                   bookmarkRow.title.length > 0 ? bookmarkRow.chapterTitle : "",
+                                   bookmarkRow.note].filter(s => s.length > 0).join(" · ")
+                            elide: Text.ElideRight
+                            color: Kirigami.Theme.disabledTextColor
+                            font: Kirigami.Theme.smallFont
+                        }
+                    }
+                    QQC2.ToolButton {
+                        icon.name: "document-edit"
+                        text: i18nc("@action:button", "Edit bookmark")
+                        display: QQC2.AbstractButton.IconOnly
+                        onClicked: bookmarkDialog.edit(bookmarkRow.bookmarkId, bookmarkRow.title, bookmarkRow.note)
+                        QQC2.ToolTip.text: text
+                        QQC2.ToolTip.visible: hovered
+                    }
+                    QQC2.ToolButton {
+                        icon.name: "edit-delete"
+                        text: i18nc("@action:button", "Delete bookmark")
+                        display: QQC2.AbstractButton.IconOnly
+                        onClicked: page.session.deleteBookmark(bookmarkRow.bookmarkId)
+                        QQC2.ToolTip.text: text
+                        QQC2.ToolTip.visible: hovered
+                    }
                 }
             }
         }

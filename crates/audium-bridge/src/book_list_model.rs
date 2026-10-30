@@ -7,7 +7,7 @@ use std::path::Path;
 use std::pin::Pin;
 
 use audium_storage::ReadOnly;
-use audium_storage::read::{self, BookFilter, BookSummary};
+use audium_storage::read::{self, BookFilter, BookQuery, BookSummary, Scope, Sort};
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::{QByteArray, QHash, QHashPair_i32_QByteArray, QModelIndex, QString, QVariant};
 
@@ -38,6 +38,14 @@ pub mod qobject {
         /// 0 all books, 1 needs review, 2 continue listening, 3 recently
         /// added, 4 finished.
         #[qproperty(i32, filter)]
+        /// Free-text search (words prefix-match title, author, narrator, series).
+        #[qproperty(QString, search)]
+        /// 0 title, 1 author, 2 recently played, 3 recently added.
+        #[qproperty(i32, sort)]
+        /// 0 library, 1 author, 2 narrator, 3 series, 4 collection, 5 no series;
+        /// `scopeId` names the author, narrator, series or collection.
+        #[qproperty(i32, scope_kind, cxx_name = "scopeKind")]
+        #[qproperty(i64, scope_id, cxx_name = "scopeId")]
         #[qproperty(i32, count, READ, NOTIFY)]
         #[qproperty(QString, error_string, cxx_name = "errorString", READ, NOTIFY)]
         type BookListModel = super::BookListModelRust;
@@ -77,6 +85,10 @@ pub struct BookListModelRust {
     database_path: QString,
     revision: i32,
     filter: i32,
+    search: QString,
+    sort: i32,
+    scope_kind: i32,
+    scope_id: i64,
     count: i32,
     error_string: QString,
     rows: Vec<BookSummary>,
@@ -110,6 +122,12 @@ impl cxx_qt::Initialize for qobject::BookListModel {
             .release();
         this.as_mut().on_revision_changed(|m| m.reload()).release();
         this.as_mut().on_filter_changed(|m| m.reload()).release();
+        this.as_mut().on_search_changed(|m| m.reload()).release();
+        this.as_mut().on_sort_changed(|m| m.reload()).release();
+        this.as_mut()
+            .on_scope_kind_changed(|m| m.reload())
+            .release();
+        this.as_mut().on_scope_id_changed(|m| m.reload()).release();
     }
 }
 
@@ -134,7 +152,29 @@ impl qobject::BookListModel {
         let result = if path.is_empty() {
             Ok(Vec::new())
         } else {
-            ReadOnly::open(Path::new(&path)).and_then(|db| read::list_books(db.conn(), filter))
+            let search = String::from(&self.search);
+            let sort = match self.sort {
+                1 => Sort::Author,
+                2 => Sort::RecentlyPlayed,
+                3 => Sort::RecentlyAdded,
+                _ => Sort::Title,
+            };
+            let id = self.scope_id;
+            let scope = match self.scope_kind {
+                1 => Scope::Author(id),
+                2 => Scope::Narrator(id),
+                3 => Scope::Series(id),
+                4 => Scope::Collection(id),
+                5 => Scope::NoSeries,
+                _ => Scope::Library,
+            };
+            let query = BookQuery {
+                filter,
+                scope,
+                search: Some(search.as_str()),
+                sort,
+            };
+            ReadOnly::open(Path::new(&path)).and_then(|db| read::query_list(db.conn(), &query))
         };
         let rows = match result {
             Ok(rows) => {
@@ -155,7 +195,13 @@ impl qobject::BookListModel {
     }
 
     fn row_count(&self, parent: &QModelIndex) -> i32 {
-        if parent.is_valid() { 0 } else { self.count }
+        // The rows themselves, not `count`: views re-read the row count
+        // during endResetModel(), before `count` is updated.
+        if parent.is_valid() {
+            0
+        } else {
+            i32::try_from(self.rows.len()).unwrap_or(i32::MAX)
+        }
     }
 
     fn data(&self, index: &QModelIndex, role: i32) -> QVariant {

@@ -7,10 +7,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use audium_core::{BookId, TrackId};
 use audium_library::{Phase, ScanError, ScanOptions, ScanProgress, scan_library};
 use audium_storage::{Database, read, write};
+use audium_storage::{now_ms, organize};
 use cxx_qt::{CxxQtType, Threading};
-use cxx_qt_lib::{QString, QStringList, QUrl};
+use cxx_qt_lib::{QList, QString, QStringList, QUrl, QVariant};
 
 use crate::convert::{qs, string_list};
 
@@ -23,6 +25,8 @@ pub mod qobject {
         type QStringList = cxx_qt_lib::QStringList;
         include!("cxx-qt-lib/qurl.h");
         type QUrl = cxx_qt_lib::QUrl;
+        include!("cxx-qt-lib/qlist.h");
+        type QList_QVariant = cxx_qt_lib::QList<cxx_qt_lib::QVariant>;
     }
 
     extern "RustQt" {
@@ -72,6 +76,71 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "cancelScan"]
         fn cancel_scan(self: Pin<&mut LibraryController>);
+
+        // Organizing. Each returns an error message, or "" on success.
+
+        /// Sets metadata overrides (`fields[i]` = `values[i]`, an empty value
+        /// removes one; lists one name per line) and re-reads the book.
+        #[qinvokable]
+        #[cxx_name = "editMetadata"]
+        fn edit_metadata(
+            self: Pin<&mut LibraryController>,
+            book_id: i64,
+            fields: &QStringList,
+            values: &QStringList,
+        ) -> QString;
+
+        /// Merges `others` (book ids) into `target`.
+        #[qinvokable]
+        #[cxx_name = "mergeBooks"]
+        fn merge_books(
+            self: Pin<&mut LibraryController>,
+            target: i64,
+            others: &QList_QVariant,
+        ) -> QString;
+
+        /// Moves the given tracks of a book into a new book.
+        #[qinvokable]
+        #[cxx_name = "splitBook"]
+        fn split_book(
+            self: Pin<&mut LibraryController>,
+            book_id: i64,
+            track_ids: &QList_QVariant,
+        ) -> QString;
+
+        #[qinvokable]
+        #[cxx_name = "dismissReview"]
+        fn dismiss_review(self: Pin<&mut LibraryController>, book_id: i64) -> QString;
+
+        /// Returns the new (or existing) collection's id, or 0 on error.
+        #[qinvokable]
+        #[cxx_name = "createCollection"]
+        fn create_collection(self: Pin<&mut LibraryController>, name: &QString) -> i64;
+
+        #[qinvokable]
+        #[cxx_name = "renameCollection"]
+        fn rename_collection(self: Pin<&mut LibraryController>, id: i64, name: &QString)
+        -> QString;
+
+        #[qinvokable]
+        #[cxx_name = "deleteCollection"]
+        fn delete_collection(self: Pin<&mut LibraryController>, id: i64) -> QString;
+
+        #[qinvokable]
+        #[cxx_name = "addToCollection"]
+        fn add_to_collection(
+            self: Pin<&mut LibraryController>,
+            collection: i64,
+            book_id: i64,
+        ) -> QString;
+
+        #[qinvokable]
+        #[cxx_name = "removeFromCollection"]
+        fn remove_from_collection(
+            self: Pin<&mut LibraryController>,
+            collection: i64,
+            book_id: i64,
+        ) -> QString;
     }
 
     impl cxx_qt::Threading for LibraryController {}
@@ -95,6 +164,24 @@ pub struct LibraryControllerRust {
     db: Option<Database>,
     cache_dir: PathBuf,
     cancel: Arc<AtomicBool>,
+    /// Folders to re-read once the running scan has finished.
+    pending_dirs: Vec<PathBuf>,
+}
+
+/// Ids from a QML array (numbers arrive as doubles or integers).
+fn ids(list: &QList<QVariant>) -> Vec<i64> {
+    list.iter()
+        .filter_map(|v| {
+            v.value::<i64>()
+                .or_else(|| v.value::<i32>().map(i64::from))
+                .or_else(|| {
+                    v.value::<f64>()
+                        .filter(|f| f.fract() == 0.0)
+                        .map(|f| f as i64)
+                })
+        })
+        .filter(|&id| id > 0)
+        .collect()
 }
 
 fn to_i32(n: impl TryInto<i32>) -> i32 {
@@ -128,7 +215,7 @@ impl qobject::LibraryController {
                 set_ro!(self, ready, ready_changed, true);
                 self.as_mut().refresh();
                 if !self.folders().is_empty() {
-                    self.start_scan(false);
+                    self.start_scan(false, Vec::new());
                 }
                 true
             }
@@ -169,7 +256,7 @@ impl qobject::LibraryController {
             return qs(&e.to_string());
         }
         self.as_mut().refresh();
-        self.start_scan(false);
+        self.start_scan(false, Vec::new());
         QString::default()
     }
 
@@ -197,15 +284,147 @@ impl qobject::LibraryController {
     }
 
     fn rescan(self: Pin<&mut Self>) {
-        self.start_scan(false);
+        self.start_scan(false, Vec::new());
     }
 
     fn full_rescan(self: Pin<&mut Self>) {
-        self.start_scan(true);
+        self.start_scan(true, Vec::new());
     }
 
     fn cancel_scan(self: Pin<&mut Self>) {
         self.cancel.store(true, Ordering::Relaxed);
+    }
+
+    /// Runs a small write on the UI thread's connection, then refreshes the
+    /// counts and models. Refused while a scan runs (it holds the database).
+    fn organize(
+        mut self: Pin<&mut Self>,
+        write: impl FnOnce(&mut Database) -> audium_storage::Result<()>,
+    ) -> QString {
+        if self.scanning {
+            return qs("The library is being scanned. Try again when the scan has finished.");
+        }
+        let result = {
+            let mut rust = self.as_mut().rust_mut();
+            let Some(db) = rust.db.as_mut() else {
+                return qs("The library database is not open.");
+            };
+            write(db)
+        };
+        self.as_mut().refresh();
+        self.as_mut().bump_revision();
+        match result {
+            Ok(()) => QString::default(),
+            Err(e) => {
+                tracing::error!(error = %e, "library change failed");
+                qs(&e.to_string())
+            }
+        }
+    }
+
+    /// Re-reads the folders of these books (e.g. after merging or editing).
+    fn reread_books(self: Pin<&mut Self>, books: &[BookId]) {
+        let Some(db) = self.rust().db.as_ref() else {
+            return;
+        };
+        let mut dirs = Vec::new();
+        for book in books {
+            if let Ok((_, d)) = organize::book_folders(db.conn(), *book) {
+                dirs.extend(d);
+            }
+        }
+        if !dirs.is_empty() {
+            self.start_scan(false, dirs);
+        }
+    }
+
+    fn edit_metadata(
+        mut self: Pin<&mut Self>,
+        book_id: i64,
+        fields: &QStringList,
+        values: &QStringList,
+    ) -> QString {
+        let fields: Vec<String> = QList::<QString>::from(fields)
+            .iter()
+            .map(String::from)
+            .collect();
+        let values: Vec<String> = QList::<QString>::from(values)
+            .iter()
+            .map(String::from)
+            .collect();
+        if fields.len() != values.len() {
+            return qs("fields and values do not match");
+        }
+        let book = BookId(book_id);
+        let error = self.as_mut().organize(|db| {
+            let now = now_ms();
+            for (field, value) in fields.iter().zip(&values) {
+                organize::set_override(db.conn(), book, field, value, now)?;
+            }
+            Ok(())
+        });
+        if error.is_empty() {
+            self.reread_books(&[book]);
+        }
+        error
+    }
+
+    fn merge_books(mut self: Pin<&mut Self>, target: i64, others: &QList<QVariant>) -> QString {
+        let others: Vec<BookId> = ids(others).into_iter().map(BookId).collect();
+        let target = BookId(target);
+        let error = self
+            .as_mut()
+            .organize(|db| organize::merge_books(db, target, &others, now_ms()));
+        if error.is_empty() {
+            self.reread_books(&[target]);
+        }
+        error
+    }
+
+    fn split_book(mut self: Pin<&mut Self>, book_id: i64, track_ids: &QList<QVariant>) -> QString {
+        let tracks: Vec<TrackId> = ids(track_ids).into_iter().map(TrackId).collect();
+        let book = BookId(book_id);
+        let mut new_book = None;
+        let error = self.as_mut().organize(|db| {
+            let uid = audium_library::fresh_uid(db.path());
+            new_book = Some(organize::split_book(db, book, &tracks, &uid, now_ms())?);
+            Ok(())
+        });
+        if let Some(new_book) = new_book {
+            self.reread_books(&[book, new_book]);
+        }
+        error
+    }
+
+    fn dismiss_review(self: Pin<&mut Self>, book_id: i64) -> QString {
+        self.organize(|db| organize::dismiss_review(db.conn(), BookId(book_id), now_ms()))
+    }
+
+    fn create_collection(self: Pin<&mut Self>, name: &QString) -> i64 {
+        let name = String::from(name);
+        let mut id = 0;
+        let error = self.organize(|db| {
+            id = organize::create_collection(db.conn(), &name, now_ms())?;
+            Ok(())
+        });
+        if error.is_empty() { id } else { 0 }
+    }
+
+    fn rename_collection(self: Pin<&mut Self>, id: i64, name: &QString) -> QString {
+        let name = String::from(name);
+        self.organize(|db| organize::rename_collection(db.conn(), id, &name))
+    }
+
+    fn delete_collection(self: Pin<&mut Self>, id: i64) -> QString {
+        self.organize(|db| organize::delete_collection(db.conn(), id))
+    }
+
+    fn add_to_collection(self: Pin<&mut Self>, collection: i64, book_id: i64) -> QString {
+        self.organize(|db| organize::add_to_collection(db.conn(), collection, BookId(book_id)))
+    }
+
+    fn remove_from_collection(self: Pin<&mut Self>, collection: i64, book_id: i64) -> QString {
+        self.organize(|db| organize::remove_from_collection(db.conn(), collection, BookId(book_id)))
     }
 
     fn set_error(mut self: Pin<&mut Self>, message: String) {
@@ -255,8 +474,11 @@ impl qobject::LibraryController {
         );
     }
 
-    fn start_scan(mut self: Pin<&mut Self>, force: bool) {
+    /// Starts a scan; `force_dirs` are re-read even if unchanged. A request
+    /// for specific folders made while a scan runs is queued until it ends.
+    fn start_scan(mut self: Pin<&mut Self>, force: bool, force_dirs: Vec<PathBuf>) {
         if self.scanning {
+            self.as_mut().rust_mut().pending_dirs.extend(force_dirs);
             return;
         }
         let Some(db) = self.rust().db.as_ref() else {
@@ -280,12 +502,16 @@ impl qobject::LibraryController {
         std::thread::Builder::new()
             .name("audium-scan".into())
             .spawn(move || {
-                let outcome = run_scan(&db_path, &cache_dir, force, &cancel, &thread);
+                let outcome = run_scan(&db_path, &cache_dir, force, force_dirs, &cancel, &thread);
                 let _ = thread.queue(move |mut obj| {
                     set_ro!(obj, scanning, scanning_changed, false);
                     set_ro!(obj, scan_status, scan_status_changed, qs(&outcome));
                     obj.as_mut().refresh();
-                    obj.bump_revision();
+                    obj.as_mut().bump_revision();
+                    let pending = std::mem::take(&mut obj.as_mut().rust_mut().pending_dirs);
+                    if !pending.is_empty() {
+                        obj.start_scan(false, pending);
+                    }
                 });
             })
             .map_err(|e| tracing::error!(error = %e, "cannot start scan thread"))
@@ -299,6 +525,7 @@ fn run_scan(
     db_path: &Path,
     cache_dir: &Path,
     force: bool,
+    force_dirs: Vec<PathBuf>,
     cancel: &AtomicBool,
     thread: &cxx_qt::CxxQtThread<qobject::LibraryController>,
 ) -> String {
@@ -329,6 +556,7 @@ fn run_scan(
         cache_dir: cache_dir.to_owned(),
         threads,
         force,
+        force_dirs,
     };
 
     let last_report = Mutex::new(Instant::now() - Duration::from_secs(1));

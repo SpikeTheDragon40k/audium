@@ -38,6 +38,41 @@ Kirigami.ApplicationWindow {
             revision: Qt.binding(() => root.dataRevision)
         })
         page.nowPlayingRequested.connect(() => root.showNowPlaying())
+        page.groupRequested.connect((kind, id, name) => root.showGroup(kind, id, name, page))
+        page.editRequested.connect(id => root.showEditor(editMetadataComponent, id))
+        page.splitRequested.connect(id => root.showEditor(splitBookComponent, id))
+    }
+
+    /// The books of an author (1), narrator (2), series (3) or collection (4).
+    function showGroup(kind, groupId, name, fromPage) {
+        const page = pushAfter(fromPage || libraryPage, booksComponent, {
+            library: root.library,
+            revision: Qt.binding(() => root.dataRevision),
+            scopeKind: kind,
+            scopeId: groupId,
+            name: name
+        })
+        page.bookRequested.connect(id => root.showBook(id, page))
+    }
+
+    /// Metadata editor or split page for a book; closes itself when done.
+    /// Metadata editor or split page for a book, as a layer over the window
+    /// (with a back button); closes itself when done.
+    function showEditor(component, bookId) {
+        const page = pageStack.layers.push(component, {
+            bookId: bookId,
+            library: root.library,
+            revision: Qt.binding(() => root.dataRevision)
+        })
+        page.done.connect(() => pageStack.layers.pop())
+    }
+
+    function addBookmark() {
+        if (root.session.addBookmark()) {
+            root.showPassiveNotification(i18n("Bookmark added"), "short")
+        } else {
+            root.showPassiveNotification(i18n("Play a book from your library to add bookmarks."))
+        }
     }
 
     function showReview() {
@@ -48,8 +83,12 @@ Kirigami.ApplicationWindow {
         page.bookRequested.connect(id => root.showBook(id, page))
     }
 
+    // Settings is a layer over the window, with a back button. (As a column
+    // beside the library, a wide window gave it no way to be closed.)
     function showSettings() {
-        pushAfter(libraryPage, settingsComponent, {library: root.library, session: root.session})
+        if (pageStack.layers.depth <= 1) {
+            pageStack.layers.push(settingsComponent, {library: root.library, session: root.session})
+        }
     }
 
     function showNowPlaying() {
@@ -77,6 +116,7 @@ Kirigami.ApplicationWindow {
         session: root.session
         revision: root.dataRevision
         onBookRequested: bookId => root.showBook(bookId, libraryPage)
+        onGroupRequested: (kind, id, name) => root.showGroup(kind, id, name, libraryPage)
         onReviewRequested: root.showReview()
         onSettingsRequested: root.showSettings()
         onNowPlayingRequested: root.showNowPlaying()
@@ -113,6 +153,18 @@ Kirigami.ApplicationWindow {
         id: settingsComponent
         SettingsPage {}
     }
+    Component {
+        id: booksComponent
+        BooksPage {}
+    }
+    Component {
+        id: editMetadataComponent
+        EditMetadataPage {}
+    }
+    Component {
+        id: splitBookComponent
+        SplitBookPage {}
+    }
 
     // One persistent instance: it keeps its state when closed and reopened.
     NowPlayingPage {
@@ -147,6 +199,19 @@ Kirigami.ApplicationWindow {
     // Placeholder until search arrives (Milestone 4).
     Shortcut {
         sequences: [StandardKey.Find]
-        onActivated: root.showPassiveNotification(i18n("Search is not available yet."))
+        onActivated: {
+            root.pageStack.currentIndex = 0
+            libraryPage.focusSearch()
+        }
+    }
+    Shortcut {
+        sequence: "B"
+        onActivated: root.addBookmark()
+    }
+    // Escape closes a layer (settings, editors).
+    Shortcut {
+        sequence: "Escape"
+        enabled: root.pageStack.layers.depth > 1
+        onActivated: root.pageStack.layers.pop()
     }
 }
