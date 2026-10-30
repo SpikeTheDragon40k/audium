@@ -27,7 +27,7 @@ public:
 
     // Audium's icon: from the icon theme when installed, otherwise the copy
     // built into the program. Also the window icon.
-    static constexpr const char *AppIconName = "org.audium.Audium";
+    static constexpr const char *AppIconName = "io.github.SpikeTheDragon40k.Audium";
     static QIcon appIcon();
 
     // Whether the desktop shows tray icons (otherwise closing quits).

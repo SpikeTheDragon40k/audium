@@ -59,7 +59,7 @@ private Q_SLOTS:
     {
         AppInfo info;
         QCOMPARE(info.getVersion(), QStringLiteral(AUDIUM_VERSION_STRING));
-        QCOMPARE(info.getAppId(), QStringLiteral("org.audium.Audium"));
+        QCOMPARE(info.getAppId(), QStringLiteral("io.github.SpikeTheDragon40k.Audium"));
     }
 
     void qmlSeesBridgeSingleton()
@@ -351,6 +351,27 @@ private Q_SLOTS:
         QCOMPARE(library.backupDatabase(backupUrl), QString());
         QCOMPARE(library.backupDatabase(backupUrl), QString()); // replacing an existing backup works
         QVERIFY(QFileInfo(backupUrl.toLocalFile()).size() > 0);
+
+        // Settings → Reset Statistics…, confirmed in its dialog, deletes the
+        // listening history and nothing else.
+        const QString db = library.getDatabasePath();
+        QVERIFY(sqliteQuery(db, QStringLiteral("SELECT count(*) FROM sessions;")).toInt() > 0);
+        const QString finishedBefore = sqliteQuery(db, QStringLiteral("SELECT count(*) FROM progress WHERE finished_at IS NOT NULL;"));
+        QVERIFY(QMetaObject::invokeMethod(window, "showSettings"));
+        QTRY_COMPARE(layers->property("depth").toInt(), 2);
+        QTRY_VERIFY(!layers->property("busy").toBool());
+        QQuickItem *resetButton = nullptr;
+        QTRY_VERIFY((resetButton = visibleButtonWithText(window, QStringLiteral("Reset Statistics…"))));
+        click(window, resetButton);
+        QQuickItem *confirm = nullptr;
+        QTRY_VERIFY((confirm = visibleButtonWithText(window, QStringLiteral("Reset Statistics"))));
+        click(window, confirm);
+        QTRY_COMPARE(sqliteQuery(db, QStringLiteral("SELECT count(*) FROM sessions;")), QStringLiteral("0"));
+        QCOMPARE(sqliteQuery(db, QStringLiteral("SELECT count(*) FROM progress WHERE finished_at IS NOT NULL;")), finishedBefore);
+        QTRY_VERIFY(!visibleButtonWithText(window, QStringLiteral("Reset Statistics"))); // the dialog closed
+        QTest::qWait(300);
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_COMPARE(layers->property("depth").toInt(), 1);
 
         // Opening another page removes the details page (destroyed shortly after).
         QVERIFY(QMetaObject::invokeMethod(window, "showReview"));

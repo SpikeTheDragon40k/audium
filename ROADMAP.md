@@ -8,9 +8,9 @@ All builds run locally; GitHub hosts only the code and the Releases (see ARCHITE
 
 ## Current status
 
-- **Done:** environment check and design docs; M0, M1 and M2 on Linux (2026-10-29); M3 on Linux (2026-10-30, reviewed); **M4 on Linux** (2026-10-30, reviewed); **M5 on Linux** (2026-10-30, reviewed); **M6 on Linux** (2026-10-30, reviewed); **M7, release on Linux** (2026-10-30, committed; the Arch package build still fails, see below).
+- **Done:** environment check and design docs; M0, M1 and M2 on Linux (2026-10-29); M3 on Linux (2026-10-30, reviewed); **M4 on Linux** (2026-10-30, reviewed); **M5 on Linux** (2026-10-30, reviewed); **M6 on Linux** (2026-10-30, reviewed); **M7, release on Linux** (2026-10-30, reviewed: the maintainer installed the package and it works).
 - **On hold:** Milestone 8 (Windows), at the maintainer's request.
-- **Next:** make the Arch package build (`makepkg`), then the maintainer's hands-on review of M7.
+- **Next:** release 1.0.0 (Arch package). Then 1.1.0: Flatpak and the Flathub submission.
 - **Remote:** private GitHub repo `SpikeTheDragon40k/audium`, used for code and Releases only (no GitHub Actions).
 
 ## Resume here (updated 2026-10-30)
@@ -18,10 +18,13 @@ All builds run locally; GitHub hosts only the code and the Releases (see ARCHITE
 State:
 - Branch `main`. M0–M7 are committed and pushed. M7 was committed at the maintainer's request before their hands-on review. Windows was moved out of M7 into its own milestone, M8, which is **on hold**.
 - `scripts/check.sh` passes. No schema change in M7 (one new setting, `theme`).
-- **The Arch package does not build yet.** `makepkg` (from a tarball of the working tree, `--nodeps`) compiles everything, then the final link of `audium` fails: undefined references to the Rust bridge (`PlaybackSession::…`, `cxx_qt_init_crate_audium_bridge`). Likely cause, not yet confirmed: makepkg's default `lto` option adds `-flto` to the C++ build, which breaks linking with the Rust static library. First thing to try: `options=('!lto')` in `packaging/linux/PKGBUILD`, then rebuild with `makepkg` and install with `pacman -U`.
-- **Open decision for the maintainer: the project licence** (README says "To be decided"). Until then the AppStream file and the PKGBUILD say `LicenseRef-proprietary`, which is what having no licence means. Change both, add a `LICENSE` file and the README section when one is chosen.
+- **Arch package: builds.** The first `makepkg` failed at the final link (undefined references to the Rust bridge): makepkg's default `lto` option adds `-flto` to the C++ compiled inside the bridge's build script. Fixed with `options=('!lto')` in the PKGBUILD. Checked: `makepkg` from a tarball of the working tree (`--nodeps`) builds `audium-0.1.0-1-x86_64.pkg.tar.zst` (3.8 MB: binary, themes, icon, `.desktop`, metainfo; licence GPL-3.0-only); the packaged binary has no missing libraries and starts (offscreen, throwaway data dir). The maintainer installed it with `pacman -U` and reports it works flawlessly on their desktop.
+- **Licence:** GPL-3.0-only, chosen by the maintainer (2026-10-30): `LICENSE`, README, Cargo manifests, AppStream file, PKGBUILD and `KAboutData`.
+- **App ID renamed** to `io.github.SpikeTheDragon40k.Audium` (was `org.audium.Audium`), before 1.0.0, because Flathub only accepts IDs on a domain or code host the developer controls. It names the desktop file, icon, AppStream id, Wayland app id, MPRIS `DesktopEntry` and tray item. Unchanged: the data directories (`~/.local/share/audium`, from the component name `audium`), the MPRIS bus name `org.mpris.MediaPlayer2.audium`, and the internal QML module URIs (`org.audium.app`, `org.audium.bridge`). A launcher pinned to the old desktop file has to be pinned again after updating.
 
-Next: fix the package build (above). Then the maintainer reviews M7 by hand (resizing, themes, icon, installed package).
+- **Reset Statistics** (maintainer's request, 2026-10-30): Settings → Your Data → "Reset Statistics…" with a confirmation dialog deletes the listening history (`sessions`); progress, bookmarks and finished books stay. Tested in `test_bridge` (clicked like a user, then the database checked) and in the storage tests.
+
+Next: release 1.0.0 (see "1.0.0 release" below).
 
 How the work goes (keep doing this):
 - One milestone at a time. At the end: `scripts/check.sh`, update ROADMAP and ARCHITECTURE, then **stop for the maintainer's review**. Commit (no AI trailer) and push only when they say so.
@@ -434,7 +437,7 @@ Bugs found and fixed during M6 (several were in earlier milestones' code):
 - (Windows moved to M8.)
 
 ### M7 status (2026-10-30)
-Done and verified locally with `scripts/check.sh` (all steps pass), except that the Arch package does not build yet (see "Resume here"). Details in ARCHITECTURE §13a.
+Done and verified locally with `scripts/check.sh` (all steps pass); the Arch package builds (see "Resume here"). Details in ARCHITECTURE §13a.
 
 **Window sizes:**
 - The library keeps most of the window; a page opened beside it (details, a group's books, Needs Review, Now Playing) takes about 40% (it used to be the reverse: a 360-pixel library and a huge details column).
@@ -446,7 +449,7 @@ Done and verified locally with `scripts/check.sh` (all steps pass), except that 
 
 **Performance** (1000 books; numbers in ARCHITECTURE §13a): first scan about 1 s, unchanged rescan 0.1 s, grid and list scroll at 7 ms per frame, search under 0.1 s, 200 MiB with the window open. The bookshelf was the one slow view: each shelf loaded the whole library twice before its own books. Fixed; it is still the slowest view (26 ms average, 70 ms worst per scroll step), listed as a known limitation.
 
-**Packaging:** `.desktop` file, AppStream metainfo, an original app icon (also used for the window and the tray), install rules, `packaging/linux/PKGBUILD`, `scripts/release.sh`. `makepkg` currently fails at the final link (likely makepkg's LTO; see "Resume here").
+**Packaging:** `.desktop` file, AppStream metainfo, an original app icon (also used for the window and the tray), install rules, `packaging/linux/PKGBUILD`, `scripts/release.sh`. The PKGBUILD needs `options=('!lto')`: with makepkg's LTO the final link fails.
 
 **Docs:** README rewritten for users (features, keys, data locations, installing, known limitations); ARCHITECTURE §13a; §6 corrected: the `ffprobe` chapter fallback it described was never built.
 
@@ -474,3 +477,14 @@ Needs a Windows 11 x64 machine; nothing here can be built or tested on Linux.
 - Tray: KStatusNotifierItem falls back to `QSystemTrayIcon`; check it.
 - Themes: check that `Theme` finds `share/audium/themes` in Craft's layout.
 - Installer (Craft NSIS), built locally, and a Windows step in `scripts/release.sh`.
+
+## 1.0.0 release
+- Version 1.0.0 in `CMakeLists.txt`, the Cargo workspace, the PKGBUILD and an AppStream `<release>` entry.
+- Commit, tag `v1.0.0`, then the maintainer runs `scripts/release.sh 1.0.0` (checks, source tarball, Arch package, checksums; asks before pushing the tag and creating the GitHub release).
+
+## 1.1.0 — Flatpak and Flathub
+Decided by the maintainer: the Flathub submission comes in 1.1.0, not 1.0.0.
+- Tools: `flatpak-builder` (`sudo pacman -S flatpak-builder`), the KDE SDK and runtime, and the Rust SDK extension from Flathub.
+- Manifest `io.github.SpikeTheDragon40k.Audium.yml` on the KDE runtime (Qt 6, KF6). mpv and the libraries it needs that the runtime lacks are built as modules; Corrosion too. Rust crates vendored for an offline build with Flathub's `flatpak-cargo-generator`.
+- Permissions: Wayland/X11, PulseAudio, GPU; the library read-only (`--filesystem=…:ro`; Flathub reviewers may ask why); MPRIS bus name, the tray (`org.kde.StatusNotifierWatcher`), notifications.
+- Flathub requirements: a public repository, screenshots at public URLs in the AppStream file, passing `flatpak-builder-lint`. Then a pull request to `flathub/flathub`; a volunteer reviews it (days to weeks).

@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>org.audium.Audium</id>
+  <id>io.github.SpikeTheDragon40k.Audium</id>
   <metadata_license>CC0-1.0</metadata_license>
-  <!-- The project's licence is not chosen yet (README, "License"). -->
-  <project_license>LicenseRef-proprietary</project_license>
+  <project_license>GPL-3.0-only</project_license>
   <name>Audium</name>
   <summary>Listen to your audiobook library, offline</summary>
   <description>
@@ -28,7 +27,7 @@
   </description>
   <url type="homepage">https://github.com/SpikeTheDragon40k/audium</url>
   <url type="bugtracker">https://github.com/SpikeTheDragon40k/audium/issues</url>
-  <launchable type="desktop-id">org.audium.Audium.desktop</launchable>
+  <launchable type="desktop-id">io.github.SpikeTheDragon40k.Audium.desktop</launchable>
   <provides>
     <binary>audium</binary>
   </provides>
@@ -42,7 +41,7 @@
     <keyword>m4b</keyword>
     <keyword>player</keyword>
   </keywords>
-  <developer id="org.audium">
+  <developer id="io.github.spikethedragon40k">
     <name>Adriano Inghingolo</name>
   </developer>
   <content_rating type="oars-1.1"/>

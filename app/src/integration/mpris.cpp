@@ -247,7 +247,7 @@ QString MprisRootAdaptor::identity() const
 
 QString MprisRootAdaptor::desktopEntry() const
 {
-    return QStringLiteral("org.audium.Audium");
+    return QStringLiteral("io.github.SpikeTheDragon40k.Audium");
 }
 
 void MprisRootAdaptor::Raise()

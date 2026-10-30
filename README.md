@@ -14,7 +14,7 @@ An offline-first desktop audiobook player for Linux (primary: Arch + KDE Plasma 
 - **Metadata:** from `metadata.json`, `desc.txt`, `reader.txt` and `cover.*`/`folder.*` next to the files, then embedded tags, then folder and file names. Uncertain books go to a **Needs Review** list, where you can edit, merge or split them. Your edits are stored in Audium, never written to the files.
 - **Listening:** resumes where you left off, per-book speed (0.5×–3×, pitch-corrected), chapters, bookmarks with notes, and a sleep timer (minutes or end of chapter) that fades out; moving the mouse or pressing a key over Audium during the fade gives you more time.
 - **Browsing:** Home (continue listening, recently added, finished), books as a grid, a list or a bookshelf, authors, series, collections, and search.
-- **Statistics:** time listened today, this week, this month and in total, streaks, books finished and a 30-day chart.
+- **Statistics:** time listened today, this week, this month and in total, streaks, books finished and a 30-day chart. Settings → Reset Statistics… clears the listening history (progress, bookmarks and finished books stay).
 - **Your data:** export and import progress, bookmarks, statistics, edits and settings as JSON (books are recognised by their content, not their paths), and back up the database.
 - **Desktop:** media keys, Plasma's media controls and lock screen (MPRIS), a tray icon, closing to the tray while playing, and notifications.
 - **Appearance:** follows your Plasma colours (Breeze light or dark), or uses the Dracula or Nord theme (Settings → Appearance).
@@ -89,4 +89,4 @@ This software is developed with AI assistance. All code is tested, reviewed and 
 
 ## License
 
-To be decided.
+Audium is free software, licensed under the [GNU General Public License, version 3](LICENSE) (GPL-3.0-only).

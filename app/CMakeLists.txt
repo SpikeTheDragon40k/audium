@@ -92,7 +92,7 @@ install(TARGETS audium ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
 
 # The application icon: in the icon theme when installed, and built in as a
 # fallback (uninstalled builds, Windows).
-qt_add_resources(audium_ui "icons" PREFIX "/" FILES icons/org.audium.Audium.svg)
-install(FILES icons/org.audium.Audium.svg DESTINATION ${KDE_INSTALL_FULL_ICONDIR}/hicolor/scalable/apps)
-install(PROGRAMS org.audium.Audium.desktop DESTINATION ${KDE_INSTALL_APPDIR})
-install(FILES org.audium.Audium.metainfo.xml DESTINATION ${KDE_INSTALL_METAINFODIR})
+qt_add_resources(audium_ui "icons" PREFIX "/" FILES icons/io.github.SpikeTheDragon40k.Audium.svg)
+install(FILES icons/io.github.SpikeTheDragon40k.Audium.svg DESTINATION ${KDE_INSTALL_FULL_ICONDIR}/hicolor/scalable/apps)
+install(PROGRAMS io.github.SpikeTheDragon40k.Audium.desktop DESTINATION ${KDE_INSTALL_APPDIR})
+install(FILES io.github.SpikeTheDragon40k.Audium.metainfo.xml DESTINATION ${KDE_INSTALL_METAINFODIR})

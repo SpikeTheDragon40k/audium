@@ -29,8 +29,8 @@ cmake --build "$build"
 
 step "install (staged) and desktop metadata"
 DESTDIR="$build/stage" cmake --install "$build" >/dev/null
-desktop-file-validate "$root/app/org.audium.Audium.desktop"
-appstreamcli validate --no-net "$root/app/org.audium.Audium.metainfo.xml"
+desktop-file-validate "$root/app/io.github.SpikeTheDragon40k.Audium.desktop"
+appstreamcli validate --no-net "$root/app/io.github.SpikeTheDragon40k.Audium.metainfo.xml"
 
 step "ctest"
 ctest --test-dir "$build" --output-on-failure

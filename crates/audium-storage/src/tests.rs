@@ -1175,6 +1175,20 @@ mod statistics {
             [audium_core::stats::Date::parse("2026-10-30").expect("d")]
         );
         assert!(stats::today(db.conn()).expect("today").is_some());
+
+        // Clearing removes the listening, not the finished books.
+        assert_eq!(stats::clear_listening(db.conn()).expect("clear"), 3);
+        assert!(
+            stats::per_book_totals(db.conn(), 10)
+                .expect("totals")
+                .is_empty()
+        );
+        assert!(
+            stats::listening_per_day(db.conn())
+                .expect("days")
+                .is_empty()
+        );
+        assert_eq!(stats::finished_dates(db.conn()).expect("finished").len(), 1);
     }
 }
 

@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use audium_core::{BookId, TrackId};
 use audium_library::{Phase, ScanError, ScanOptions, ScanProgress, scan_library};
 use audium_storage::{Database, read, write};
-use audium_storage::{now_ms, organize, portable};
+use audium_storage::{now_ms, organize, portable, stats};
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QList, QMap, QMapPair_QString_QVariant, QString, QStringList, QUrl, QVariant};
 
@@ -164,6 +164,12 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "applyImport"]
         fn apply_import(self: Pin<&mut LibraryController>) -> QString;
+
+        /// Deletes all listening history (statistics); progress, bookmarks
+        /// and finished books stay. Returns an error message, or empty.
+        #[qinvokable]
+        #[cxx_name = "resetStatistics"]
+        fn reset_statistics(self: Pin<&mut LibraryController>) -> QString;
 
         /// Copies the library database to a file (a consistent snapshot).
         #[qinvokable]
@@ -462,6 +468,14 @@ impl qobject::LibraryController {
 
     fn delete_collection(self: Pin<&mut Self>, id: i64) -> QString {
         self.organize(|db| organize::delete_collection(db.conn(), id))
+    }
+
+    fn reset_statistics(self: Pin<&mut Self>) -> QString {
+        self.organize(|db| {
+            let removed = stats::clear_listening(db.conn())?;
+            tracing::info!(sessions = removed, "listening statistics reset");
+            Ok(())
+        })
     }
 
     fn add_to_collection(self: Pin<&mut Self>, collection: i64, book_id: i64) -> QString {

@@ -16,7 +16,7 @@ pub use ids::{BookId, BookUid, LibraryId, TrackId};
 pub use natural::natural_cmp;
 
 /// Reverse-DNS application id, shared by the desktop file, D-Bus names and data dirs.
-pub const APP_ID: &str = "org.audium.Audium";
+pub const APP_ID: &str = "io.github.SpikeTheDragon40k.Audium";
 
 /// The application version, taken from the workspace manifest.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

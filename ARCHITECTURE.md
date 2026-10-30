@@ -268,6 +268,7 @@ There's no async runtime. Rust worker threads never touch QObjects.
   - **`plan_import`:** decides everything without writing. Newer progress wins; bookmarks are added unless one exists within 1 s with the same title; sessions are added unless one has the same start; overrides take the newer one per field; speed only where none is set; collections are created or extended; settings are overwritten.
   - **Preview and apply:** the UI shows the plan's summary, and `apply_import` executes exactly that plan in one transaction. Books with new overrides are then re-read.
   - **Refused files:** foreign, damaged and newer-format files are refused with a clear message, as are files over 200 MB.
+- **Resetting statistics** (Settings, after a confirmation): `stats::clear_listening` deletes every row of `sessions`, through `LibraryController.resetStatistics` (refused during a scan, like other library changes). `progress` is untouched, so books stay finished and "books finished" keeps counting them.
 - **Database backup:** `VACUUM INTO` a temporary file next to the target, then a rename. Exports are also written to a temporary file and renamed, so a failure never leaves half a file.
 
 ## 13. Platform integration (M6)
@@ -313,7 +314,8 @@ Every integration is a small, independent C++ class in `app/src/integration/`, c
   | Memory: before loading / window open | 79 / 200 MiB |
 
   Found and fixed: every bookshelf shelf queried the whole library twice before its own scope arrived (a model reloads on each property change), and shelves weren't recycled. The bookshelf still creates a shelf with its own model and horizontal view per series or author; that's its remaining cost.
-- **Packaging (Linux).** `app/org.audium.Audium.desktop`, `app/org.audium.Audium.metainfo.xml` (AppStream; validated by `scripts/check.sh` with `appstreamcli` and `desktop-file-validate`) and the icon `app/icons/org.audium.Audium.svg` (hicolor scalable; also compiled in, for uninstalled builds and the tray). `packaging/linux/PKGBUILD` builds from a release tarball, fetching crates in `prepare()` and building offline with `BUILD_TESTING=OFF`. `scripts/release.sh` checks the tree and tag, runs `scripts/check.sh`, makes the tarball and the package, and publishes with `gh` only after asking.
+- **Application ID:** `io.github.SpikeTheDragon40k.Audium` (renamed from `org.audium.Audium` before 1.0.0: Flathub accepts only IDs on a domain or code host the developer controls). It names the desktop file, icon, AppStream component, Wayland app id (`KAboutData::desktopFileName`), MPRIS `DesktopEntry` and tray item. The data directories come from the component name `audium` and did not move.
+- **Packaging (Linux).** `app/io.github.SpikeTheDragon40k.Audium.desktop`, `app/io.github.SpikeTheDragon40k.Audium.metainfo.xml` (AppStream; validated by `scripts/check.sh` with `appstreamcli` and `desktop-file-validate`) and the icon `app/icons/io.github.SpikeTheDragon40k.Audium.svg` (hicolor scalable; also compiled in, for uninstalled builds and the tray). `packaging/linux/PKGBUILD` builds from a release tarball, fetching crates in `prepare()` and building offline with `BUILD_TESTING=OFF`. `scripts/release.sh` checks the tree and tag, runs `scripts/check.sh`, makes the tarball and the package, and publishes with `gh` only after asking.
 
 ## 14. Cross-cutting
 

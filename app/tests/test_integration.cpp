@@ -161,7 +161,7 @@ private Q_SLOTS:
 
         // Root interface.
         QCOMPARE(get(service, Root, QStringLiteral("Identity")).toString(), QStringLiteral("Audium"));
-        QCOMPARE(get(service, Root, QStringLiteral("DesktopEntry")).toString(), QStringLiteral("org.audium.Audium"));
+        QCOMPARE(get(service, Root, QStringLiteral("DesktopEntry")).toString(), QStringLiteral("io.github.SpikeTheDragon40k.Audium"));
         QCOMPARE(get(service, Root, QStringLiteral("CanQuit")).toBool(), true);
         QCOMPARE(get(service, Root, QStringLiteral("CanRaise")).toBool(), false); // no window yet
         QCOMPARE(get(service, Player, QStringLiteral("PlaybackStatus")).toString(), QStringLiteral("Stopped"));

@@ -181,6 +181,13 @@ Kirigami.ScrollablePage {
                 QQC2.ToolTip.visible: hovered
                 onClicked: backupDialog.open()
             }
+            QQC2.Button {
+                objectName: "resetStatisticsButton"
+                icon.name: "edit-clear-history"
+                text: i18nc("@action:button", "Reset Statistics…")
+                enabled: page.library.ready
+                onClicked: resetStatisticsDialog.open()
+            }
         }
 
         Kirigami.Heading {
@@ -229,6 +236,23 @@ Kirigami.ScrollablePage {
             } else {
                 importPreview.plan = plan
                 importPreview.open()
+            }
+        }
+    }
+
+    // Asks before deleting the listening history.
+    Kirigami.PromptDialog {
+        id: resetStatisticsDialog
+        objectName: "resetStatisticsDialog"
+        title: i18nc("@title:dialog", "Reset Statistics?")
+        subtitle: i18n("All listening history will be deleted: time listened, streaks, the daily chart and the most listened books. Your progress, bookmarks and finished books are kept. This cannot be undone, unless you have an export or a database backup.")
+        standardButtons: Kirigami.Dialog.Cancel
+        customFooterActions: Kirigami.Action {
+            icon.name: "edit-clear-history"
+            text: i18nc("@action:button", "Reset Statistics")
+            onTriggered: {
+                page.report(page.library.resetStatistics(), i18n("Statistics reset."))
+                resetStatisticsDialog.close()
             }
         }
     }

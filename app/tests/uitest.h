@@ -152,4 +152,30 @@ inline bool addListening(const QString &databasePath, qint64 bookId, qint64 ms)
     sqlite.start(QStringLiteral("sqlite3"), {QStringLiteral("-cmd"), QStringLiteral(".timeout 5000"), databasePath, sql});
     return sqlite.waitForFinished(10000) && sqlite.exitStatus() == QProcess::NormalExit && sqlite.exitCode() == 0;
 }
+
+// Runs one SQL query with the sqlite3 tool (a separate process, see
+// addListening) and returns its output, trimmed.
+inline QString sqliteQuery(const QString &databasePath, const QString &sql)
+{
+    QProcess sqlite;
+    sqlite.start(QStringLiteral("sqlite3"), {QStringLiteral("-cmd"), QStringLiteral(".timeout 5000"), databasePath, sql});
+    sqlite.waitForFinished(10000);
+    return QString::fromUtf8(sqlite.readAllStandardOutput()).trimmed();
+}
+
+// A visible, enabled button labelled `text`, anywhere in the window
+// including popups and dialogs.
+inline QQuickItem *visibleButtonWithText(QQuickWindow *window, const QString &text)
+{
+    QList<QQuickItem *> items;
+    collectItems(window->contentItem()->parentItem() ? window->contentItem()->parentItem() : window->contentItem(), items);
+    for (QQuickItem *item : std::as_const(items)) {
+        const QRectF r = item->mapRectToScene(item->boundingRect());
+        if (item->property("text").toString() == text && item->inherits("QQuickAbstractButton") && item->isVisible()
+            && item->isEnabled() && r.width() > 4 && QRectF(QPointF(0, 0), window->size()).contains(r.center())) {
+            return item;
+        }
+    }
+    return nullptr;
+}
 } // namespace uitest

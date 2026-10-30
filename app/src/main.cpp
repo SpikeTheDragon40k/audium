@@ -29,14 +29,20 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
 
     KLocalizedString::setApplicationDomain("audium");
-    QCoreApplication::setOrganizationDomain(QStringLiteral("audium.org"));
 
     KAboutData about(QStringLiteral("audium"),
                      i18nc("@title", "Audium"),
                      QStringLiteral(AUDIUM_VERSION_STRING),
                      i18n("Offline audiobook player"),
-                     KAboutLicense::Unknown);
-    about.setDesktopFileName(QStringLiteral("org.audium.Audium"));
+                     KAboutLicense::GPL_V3,
+                     QString(),
+                     QString(),
+                     QStringLiteral("https://github.com/SpikeTheDragon40k/audium"));
+    // The application ID (desktop file, icon, Wayland app id) is based on
+    // the code host, as Flathub requires. The data directories stay
+    // "audium", from the component name above.
+    about.setOrganizationDomain("spikethedragon40k.github.io");
+    about.setDesktopFileName(QStringLiteral("io.github.SpikeTheDragon40k.Audium"));
     KAboutData::setApplicationData(about);
     QGuiApplication::setWindowIcon(TrayIcon::appIcon());
 

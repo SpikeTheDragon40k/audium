@@ -8,6 +8,14 @@ use rusqlite::Connection;
 
 use crate::Result;
 
+/// Deletes every listening session, so the time listened, streaks, chart
+/// and per-book totals start again from zero. Progress, bookmarks and
+/// finished books are kept (books finished come from `progress`). Returns
+/// how many sessions were removed.
+pub fn clear_listening(conn: &Connection) -> Result<usize> {
+    Ok(conn.execute("DELETE FROM sessions", [])?)
+}
+
 /// Listening time per local day. A session running past local midnight is
 /// split between the two days (sessions longer than a day are not split
 /// further).

@@ -16,7 +16,7 @@ TrayIcon::TrayIcon(PlaybackController *player, PlaybackSession *session, QObject
     : QObject(parent)
     , m_player(player)
     , m_session(session)
-    , m_item(new KStatusNotifierItem(QStringLiteral("org.audium.Audium"), this))
+    , m_item(new KStatusNotifierItem(QStringLiteral("io.github.SpikeTheDragon40k.Audium"), this))
     , m_menu(new QMenu)
 {
     m_item->setCategory(KStatusNotifierItem::ApplicationStatus);
@@ -52,7 +52,7 @@ TrayIcon::TrayIcon(PlaybackController *player, PlaybackSession *session, QObject
 
 QIcon TrayIcon::appIcon()
 {
-    return QIcon::fromTheme(QString::fromLatin1(AppIconName), QIcon(QStringLiteral(":/icons/org.audium.Audium.svg")));
+    return QIcon::fromTheme(QString::fromLatin1(AppIconName), QIcon(QStringLiteral(":/icons/io.github.SpikeTheDragon40k.Audium.svg")));
 }
 
 // The menu belongs to the KStatusNotifierItem, which deletes it.
