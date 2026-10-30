@@ -479,6 +479,7 @@ Needs a Windows 11 x64 machine; nothing here can be built or tested on Linux.
 - Installer (Craft NSIS), built locally, and a Windows step in `scripts/release.sh`.
 
 ## 1.0.0 release
+Version set to 1.0.0 (2026-10-30); the release is built and published by the maintainer with `scripts/release.sh 1.0.0`.
 - Version 1.0.0 in `CMakeLists.txt`, the Cargo workspace, the PKGBUILD and an AppStream `<release>` entry.
 - Commit, tag `v1.0.0`, then the maintainer runs `scripts/release.sh 1.0.0` (checks, source tarball, Arch package, checksums; asks before pushing the tag and creating the GitHub release).
 
