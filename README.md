@@ -7,7 +7,7 @@
 - **Safe for your library:** it only reads your audio files. It never changes, moves, renames or deletes them; everything it learns, and everything you edit, is kept in its own database.
 - **Made for real libraries:** single m4b files, folders of parts, CD subfolders and loose files in author folders, with or without good tags. Tested with 1000 books.
 
-Version 1.0.0 runs on Arch Linux and Arch-based distributions (Manjaro, EndeavourOS, CachyOS…). A Flatpak for other distributions is planned for 1.1.0; Windows support is on hold.
+Version 1.0.0 is packaged for Arch Linux and Arch-based distributions (Manjaro, EndeavourOS, CachyOS…). On other distributions you can build the Flatpak yourself; publishing it on Flathub is planned for 1.1.0. Windows support is on hold.
 
 ## Contents
 
@@ -72,6 +72,26 @@ makepkg -si
 
 `makepkg` checks the source against the checksum in the PKGBUILD, installs the build tools it needs (Rust, CMake, …), builds Audium and installs the package. The build takes a few minutes.
 
+### Flatpak (any distribution)
+
+Audium is not on Flathub yet. Until it is, you can build the Flatpak from the source and install it for your user. You need Flatpak with the [Flathub](https://flathub.org/setup) remote, and then:
+
+```sh
+# Once: flatpak-builder from your distribution (e.g. sudo pacman -S flatpak-builder,
+# sudo apt install flatpak-builder, sudo dnf install flatpak-builder),
+# then the KDE SDK and Rust (about 2 GB)
+flatpak install flathub org.kde.Sdk//6.11 org.freedesktop.Sdk.Extension.rust-stable//25.08
+
+# Build and install (the first build takes a while: it also builds mpv)
+git clone https://github.com/SpikeTheDragon40k/audium.git && cd audium
+flatpak-builder --user --install --force-clean build-flatpak \
+  packaging/flatpak/io.github.SpikeTheDragon40k.Audium.yml
+```
+
+Then start Audium from your application launcher, or with `flatpak run io.github.SpikeTheDragon40k.Audium`.
+
+The Flatpak can read all your files (read-only, so your library can be anywhere) and can't change them. It keeps its own library and settings in `~/.var/app/io.github.SpikeTheDragon40k.Audium/`, separate from an Arch-package install; use **Export…** and **Import…** to move your progress between them.
+
 ## Getting started
 
 1. **Add your library.** Click **Add Library Folder…** and choose the folder with your audiobooks. You can add several folders, and remove them later in **Settings**. Audium scans them in the background, and you can keep using it meanwhile.
@@ -111,7 +131,7 @@ Audium rescans your folders each time it starts, so new books appear by themselv
 
 ## Known limitations
 
-- **Linux only for now, packaged for Arch.** Other distributions can build from source (below) until the Flatpak arrives in 1.1.0. Windows is on hold.
+- **Linux only for now.** There is a ready-made package for Arch; other distributions build the Flatpak themselves until it is on Flathub (planned for 1.1.0). Windows is on hold.
 - **Chapters** are read from MP3 (ID3 `CHAP`) and MP4/M4B files. Other formats, and files without chapter data, get one chapter per file.
 - **Extending the sleep timer by moving the mouse** works only over Audium's window: Wayland does not let applications see the pointer elsewhere. The media keys and the tray's Play/Pause extend it too.
 - **The bookshelf view** scrolls less smoothly than the grid and list in very large libraries with many small shelves.

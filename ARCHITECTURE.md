@@ -52,7 +52,7 @@ Details settled in M0:
 
 Rejected alternative: a Cargo-only build that compiles the C++ through `cxx-qt-build`. It loses the ECM tooling and the Craft packaging paths.
 
-Reproducibility: `rust-toolchain.toml` (1.99.1) and a committed `Cargo.lock`.
+Reproducibility: `rust-toolchain.toml` (1.99.1) and a committed `Cargo.lock`. The code's minimum (`rust-version` in `Cargo.toml`) is 1.98, the Rust of the Flatpak SDK extension; development and the Arch package use the pinned 1.99.1. Checked: the workspace builds with 1.98, and no dependency needs more.
 
 **Builds are local** *(decision, overrides CLAUDE.md's CI items)*: all builds, tests and release artifacts are produced on the developer's machines, not on GitHub Actions. GitHub hosts the code and the Releases only.
 - `scripts/check.sh` runs fmt, clippy, `cargo test`, the CMake build and `ctest`. It's the per-milestone gate.
@@ -315,7 +315,8 @@ Every integration is a small, independent C++ class in `app/src/integration/`, c
 
   Found and fixed: every bookshelf shelf queried the whole library twice before its own scope arrived (a model reloads on each property change), and shelves weren't recycled. The bookshelf still creates a shelf with its own model and horizontal view per series or author; that's its remaining cost.
 - **Application ID:** `io.github.SpikeTheDragon40k.Audium` (renamed from `org.audium.Audium` before 1.0.0: Flathub accepts only IDs on a domain or code host the developer controls). It names the desktop file, icon, AppStream component, Wayland app id (`KAboutData::desktopFileName`), MPRIS `DesktopEntry` and tray item. The data directories come from the component name `audium` and did not move.
-- **Packaging (Linux).** `app/io.github.SpikeTheDragon40k.Audium.desktop`, `app/io.github.SpikeTheDragon40k.Audium.metainfo.xml` (AppStream; validated by `scripts/check.sh` with `appstreamcli` and `desktop-file-validate`) and the icon `app/icons/io.github.SpikeTheDragon40k.Audium.svg` (hicolor scalable; also compiled in, for uninstalled builds and the tray). `packaging/linux/PKGBUILD` builds from a release tarball, fetching crates in `prepare()` and building offline with `BUILD_TESTING=OFF`. `scripts/release.sh` checks the tree and tag, runs `scripts/check.sh`, makes the tarball and the package, and publishes with `gh` only after asking.
+- **Packaging (Linux).** `app/io.github.SpikeTheDragon40k.Audium.desktop`, `app/io.github.SpikeTheDragon40k.Audium.metainfo.xml` (AppStream; validated by `scripts/check.sh` with `appstreamcli` and `desktop-file-validate`) and the icon `app/icons/io.github.SpikeTheDragon40k.Audium.svg` (hicolor scalable; also compiled in, for uninstalled builds and the tray). `packaging/linux/PKGBUILD` builds from a release tarball, fetching crates in `prepare()` and building offline with `BUILD_TESTING=OFF`. `scripts/release.sh` checks the tree and tag, runs `scripts/check.sh`, makes the tarball and the package, and publishes with `gh` only after asking. The PKGBUILD sets `options=('!lto')`: makepkg's `-flto` also reaches the C++ compiled in the bridge's build script, and the final link then misses the bridge's symbols.
+- **Flatpak (1.1.0).** `packaging/flatpak/io.github.SpikeTheDragon40k.Audium.yml` on the KDE 6.11 runtime builds libmpv (audio only), libplacebo and libass, then Audium; Rust crates come from `cargo-sources.json` (generated from `Cargo.lock` by `scripts/flatpak-cargo-sources.py`, checked by `scripts/check.sh`) for the offline build. The library is reachable read-only (`--filesystem=host:ro`). AAC decoding relies on the runtime's `codecs-extra` extension. The Flatpak has its own data directory under `~/.var/app/`.
 
 ## 14. Cross-cutting
 

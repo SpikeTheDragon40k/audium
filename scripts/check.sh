@@ -18,6 +18,16 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 step "fixtures"
 scripts/make-fixtures.sh >/dev/null
 
+step "flatpak crate list matches Cargo.lock"
+tmp_sources="$(mktemp)"
+scripts/flatpak-cargo-sources.py Cargo.lock "$tmp_sources" >/dev/null
+if ! cmp -s "$tmp_sources" packaging/flatpak/cargo-sources.json; then
+    rm -f "$tmp_sources"
+    echo "packaging/flatpak/cargo-sources.json is out of date: run scripts/flatpak-cargo-sources.py" >&2
+    exit 1
+fi
+rm -f "$tmp_sources"
+
 step "cargo test"
 cargo test --workspace --locked
 

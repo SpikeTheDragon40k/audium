@@ -489,3 +489,13 @@ Decided by the maintainer: the Flathub submission comes in 1.1.0, not 1.0.0.
 - Manifest `io.github.SpikeTheDragon40k.Audium.yml` on the KDE runtime (Qt 6, KF6). mpv and the libraries it needs that the runtime lacks are built as modules; Corrosion too. Rust crates vendored for an offline build with Flathub's `flatpak-cargo-generator`.
 - Permissions: Wayland/X11, PulseAudio, GPU; the library read-only (`--filesystem=…:ro`; Flathub reviewers may ask why); MPRIS bus name, the tray (`org.kde.StatusNotifierWatcher`), notifications.
 - Flathub requirements: a public repository, screenshots at public URLs in the AppStream file, passing `flatpak-builder-lint`. Then a pull request to `flathub/flathub`; a volunteer reviews it (days to weeks).
+
+### 1.1.0 status (2026-10-30): the Flatpak builds and runs locally
+- **Manifest:** `packaging/flatpak/io.github.SpikeTheDragon40k.Audium.yml`, on `org.kde.Platform` 6.11 (KDE Frameworks 6.30; Corrosion and ECM come with the SDK). Modules: libmpv 0.41.0 for audio only (no player, no Lua/JavaScript, no X11/Wayland/Vulkan output), with libplacebo 7.387.0 and libass 0.17.5; then Audium with CMake. The app source is the working tree (`type: dir`); for Flathub it becomes a git tag.
+- **Rust:** `packaging/flatpak/cargo-sources.json` lists the 111 crates from `Cargo.lock` with their checksums, for the offline build. It is written by `scripts/flatpak-cargo-sources.py` (our own: Flathub's generator script could not be run here), and `scripts/check.sh` fails when it is out of date.
+- **Minimum Rust lowered to 1.98** (`rust-version`): the SDK extension has 1.98.1. The workspace builds with it and no dependency needs more; development keeps the pinned 1.99.1.
+- **Permissions:** Wayland (X11 fallback), GPU, PulseAudio, IPC; the host's files read-only; the MPRIS name; the tray (`org.kde.StatusNotifierWatcher`, `org.kde.StatusNotifierItem-2-1`). Notifications go through the portal (no permission needed).
+- **Checked:** `flatpak-builder --user --install` builds and installs it; inside the sandbox the app starts, creates its database in `~/.var/app/…`, and registers MPRIS. The Flatpak's libmpv decodes the AAC m4b and MP3 test files (AAC comes from the runtime's `codecs-extra` extension, installed with the runtime).
+- **Tested by the maintainer** on their desktop (2026-10-30): "the flatpak works perfectly".
+- **Not done yet:** `flatpak-builder-lint`, screenshots, the manifest's source as a git tag, the Flathub submission.
+- Harmless log line: mpv without Lua has no `ytdl` option, so the backend's `ytdl=no` is reported as rejected.

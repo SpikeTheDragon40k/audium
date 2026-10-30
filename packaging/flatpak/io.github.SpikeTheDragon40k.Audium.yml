@@ -1,0 +1,111 @@
+# Flatpak manifest for Audium.
+#
+# Build and install locally, from the repository's root:
+#   flatpak-builder --user --install --force-clean build-flatpak packaging/flatpak/io.github.SpikeTheDragon40k.Audium.yml
+#   flatpak run io.github.SpikeTheDragon40k.Audium
+#
+# Needs: flatpak-builder, org.kde.Sdk//6.11 and org.freedesktop.Sdk.Extension.rust-stable//25.08.
+# The Rust crates are listed in cargo-sources.json (scripts/flatpak-cargo-sources.py;
+# re-run it when Cargo.lock changes): the build itself has no network access.
+app-id: io.github.SpikeTheDragon40k.Audium
+runtime: org.kde.Platform
+runtime-version: '6.11'
+sdk: org.kde.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: audium
+
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --socket=pulseaudio
+  # Audiobook libraries can be anywhere (another drive, /mnt, a NAS mount),
+  # and Audium only ever reads them: read-only access to the host's files.
+  - --filesystem=host:ro
+  # Media keys and Plasma's media controls (MPRIS).
+  - --own-name=org.mpris.MediaPlayer2.audium
+  # Tray icon (KStatusNotifierItem registers <pid>-<n>; the app is pid 2 in
+  # the sandbox).
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --own-name=org.kde.StatusNotifierItem-2-1
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /lib/cmake
+  - /share/man
+  - '*.a'
+  - '*.la'
+
+modules:
+  # libmpv, for audio playback only: no player executable, no Lua or
+  # JavaScript scripting, no video outputs.
+  - name: libmpv
+    buildsystem: meson
+    config-opts:
+      - -Dlibmpv=true
+      - -Dcplayer=false
+      - -Dlua=disabled
+      - -Djavascript=disabled
+      - -Duchardet=disabled
+      - -Dlibarchive=disabled
+      - -Dlibbluray=disabled
+      - -Ddvdnav=disabled
+      - -Dcdda=disabled
+      - -Dalsa=disabled
+      - -Dx11=disabled
+      - -Dwayland=disabled
+      - -Dvulkan=disabled
+      - -Dmanpage-build=disabled
+      - -Dhtml-build=disabled
+      - -Dpdf-build=disabled
+    sources:
+      - type: archive
+        url: https://github.com/mpv-player/mpv/archive/refs/tags/v0.41.0.tar.gz
+        sha256: ee21092a5ee427353392360929dc64645c54479aefdb5babc5cfbb5fad626209
+    modules:
+      - name: libplacebo
+        buildsystem: meson
+        config-opts:
+          - -Ddemos=false
+          - -Dtests=false
+          - -Dvulkan=disabled
+        sources:
+          - type: git
+            url: https://code.videolan.org/videolan/libplacebo.git
+            tag: v7.387.0
+            commit: 275f7dea27924cdd34ab2e6c20e448b6bc4fab65
+      - name: libass
+        config-opts:
+          - --disable-static
+        sources:
+          - type: archive
+            url: https://github.com/libass/libass/releases/download/0.17.5/libass-0.17.5.tar.xz
+            sha256: 2dca25c0e0c837ddf00b52011b3f82cac1e4ddd3ad018227806b0c2288864acc
+
+  - name: audium
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DBUILD_TESTING=OFF
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: /run/build/audium/cargo
+        CARGO_NET_OFFLINE: 'true'
+        # rust-toolchain.toml pins a version for development; here the SDK's
+        # Rust is used (no rustup in the sandbox).
+        RUSTUP_TOOLCHAIN: stable
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - build
+          - build-flatpak
+          - .flatpak-builder
+          - target
+          - dist
+      - cargo-sources.json
