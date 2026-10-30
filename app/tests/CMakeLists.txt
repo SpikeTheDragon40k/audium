@@ -19,9 +19,14 @@ find_package(Qt6 ${QT_MIN_VERSION} REQUIRED COMPONENTS Sql)
 audium_add_test(test_bridge)
 audium_add_test(test_playback)
 audium_add_test(test_session)
+audium_add_test(test_layout)
 target_link_libraries(test_session PRIVATE Qt::Sql)
-target_link_libraries(test_bridge PRIVATE Qt::Sql)
-set_tests_properties(test_bridge test_playback test_session PROPERTIES FIXTURES_REQUIRED audio_fixtures TIMEOUT 180)
+set_tests_properties(test_bridge test_layout test_playback test_session PROPERTIES FIXTURES_REQUIRED audio_fixtures TIMEOUT 180)
+
+# Performance pass on a generated 1000-book library. Run by scripts/perf.sh,
+# not by ctest: generating the library takes a while.
+add_executable(test_perf test_perf.cpp)
+target_link_libraries(test_perf PRIVATE Qt::Test audium_ui audium_uiplugin)
 
 # Desktop integrations, on a private D-Bus session bus (never the user's).
 if(UNIX AND NOT APPLE)

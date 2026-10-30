@@ -23,7 +23,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 find_package(Qt6 ${QT_MIN_VERSION} REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Widgets Test)
-find_package(KF6 ${KF_MIN_VERSION} REQUIRED COMPONENTS Kirigami I18n CoreAddons Notifications StatusNotifierItem)
+find_package(KF6 ${KF_MIN_VERSION} REQUIRED COMPONENTS Kirigami I18n CoreAddons ColorScheme Config Notifications StatusNotifierItem)
 if(UNIX AND NOT APPLE)
     # MPRIS (media keys and Plasma's media controls).
     find_package(Qt6 ${QT_MIN_VERSION} REQUIRED COMPONENTS DBus)

@@ -121,28 +121,34 @@ Kirigami.Page {
             indeterminate: page.library.scanTotal === 0
         }
         QQC2.TabBar {
+            id: tabBar
+            // Icons only when the names don't fit (a narrow window, or the
+            // library beside other columns).
+            readonly property bool compact: page.width < Kirigami.Units.gridUnit * 30
             Layout.fillWidth: true
             visible: books.count > 0
             currentIndex: page.tab
-            QQC2.TabButton {
-                text: i18nc("@title:tab", "Home")
-                onClicked: page.tab = LibraryPage.Tab.Home
-            }
-            QQC2.TabButton {
-                text: i18nc("@title:tab %1 is a number", "Books (%1)", books.count)
-                onClicked: page.tab = LibraryPage.Tab.Books
-            }
-            QQC2.TabButton {
-                text: i18nc("@title:tab", "Authors")
-                onClicked: page.tab = LibraryPage.Tab.Authors
-            }
-            QQC2.TabButton {
-                text: i18nc("@title:tab", "Series")
-                onClicked: page.tab = LibraryPage.Tab.Series
-            }
-            QQC2.TabButton {
-                text: i18nc("@title:tab", "Collections")
-                onClicked: page.tab = LibraryPage.Tab.Collections
+            Repeater {
+                model: [
+                    {icon: "go-home", text: i18nc("@title:tab", "Home")},
+                    {icon: "audiobook", text: i18nc("@title:tab %1 is a number", "Books (%1)", books.count)},
+                    {icon: "view-media-artist", text: i18nc("@title:tab", "Authors")},
+                    {icon: "view-media-playlist", text: i18nc("@title:tab", "Series")},
+                    {icon: "bookmarks", text: i18nc("@title:tab", "Collections")}
+                ]
+                delegate: QQC2.TabButton {
+                    required property int index
+                    required property var modelData
+                    icon.name: modelData.icon
+                    // The desktop style draws `text` even with an IconOnly
+                    // display, so a compact tab has none.
+                    text: tabBar.compact ? "" : modelData.text
+                    Accessible.name: modelData.text
+                    onClicked: page.tab = index
+                    QQC2.ToolTip.text: modelData.text
+                    QQC2.ToolTip.visible: tabBar.compact && hovered
+                    QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+                }
             }
         }
     }
@@ -238,9 +244,11 @@ Kirigami.Page {
         ColumnLayout {
             property alias searchField: search
             spacing: 0
-            RowLayout {
+            // The search field gets a row of its own when the page is narrow.
+            GridLayout {
                 Layout.fillWidth: true
                 Layout.margins: Kirigami.Units.smallSpacing
+                columns: page.width < Kirigami.Units.gridUnit * 30 ? 1 : 2
                 Kirigami.SearchField {
                     id: search
                     objectName: "librarySearch"
@@ -249,49 +257,52 @@ Kirigami.Page {
                     delaySearch: true
                     onAccepted: books.search = text
                 }
-                QQC2.ComboBox {
-                    id: sortBox
-                    enabled: page.booksView !== 2
-                    model: [
-                        i18nc("@item:inlistbox sort by", "Title"),
-                        i18nc("@item:inlistbox sort by", "Author"),
-                        i18nc("@item:inlistbox sort by", "Recently Played"),
-                        i18nc("@item:inlistbox sort by", "Recently Added")
-                    ]
-                    currentIndex: books.sort
-                    onActivated: index => books.sort = index
-                    QQC2.ToolTip.text: i18nc("@info:tooltip", "Sort by")
-                    QQC2.ToolTip.visible: hovered
-                    QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
-                }
-                QQC2.ComboBox {
-                    visible: page.booksView === 2
-                    model: [
-                        i18nc("@item:inlistbox group shelves by", "By Series"),
-                        i18nc("@item:inlistbox group shelves by", "By Author"),
-                        i18nc("@item:inlistbox group shelves by", "By Collection")
-                    ]
-                    currentIndex: shelfGrouping.value
-                    onActivated: index => shelfGrouping.value = index
-                }
-                Repeater {
-                    model: [
-                        {icon: "view-list-icons", text: i18nc("@action:button", "Grid")},
-                        {icon: "view-list-details", text: i18nc("@action:button", "List")},
-                        {icon: "view-media-artist", text: i18nc("@action:button", "Bookshelf")}
-                    ]
-                    delegate: QQC2.ToolButton {
-                        required property int index
-                        required property var modelData
-                        icon.name: modelData.icon
-                        text: modelData.text
-                        display: QQC2.AbstractButton.IconOnly
-                        checkable: true
-                        checked: page.booksView === index
-                        onClicked: page.booksView = index
-                        QQC2.ToolTip.text: text
+                RowLayout {
+                    QQC2.ComboBox {
+                        id: sortBox
+                        // The bookshelf has its own order (by shelf).
+                        visible: page.booksView !== 2
+                        model: [
+                            i18nc("@item:inlistbox sort by", "Title"),
+                            i18nc("@item:inlistbox sort by", "Author"),
+                            i18nc("@item:inlistbox sort by", "Recently Played"),
+                            i18nc("@item:inlistbox sort by", "Recently Added")
+                        ]
+                        currentIndex: books.sort
+                        onActivated: index => books.sort = index
+                        QQC2.ToolTip.text: i18nc("@info:tooltip", "Sort by")
                         QQC2.ToolTip.visible: hovered
                         QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+                    }
+                    QQC2.ComboBox {
+                        visible: page.booksView === 2
+                        model: [
+                            i18nc("@item:inlistbox group shelves by", "By Series"),
+                            i18nc("@item:inlistbox group shelves by", "By Author"),
+                            i18nc("@item:inlistbox group shelves by", "By Collection")
+                        ]
+                        currentIndex: shelfGrouping.value
+                        onActivated: index => shelfGrouping.value = index
+                    }
+                    Repeater {
+                        model: [
+                            {icon: "view-list-icons", text: i18nc("@action:button", "Grid")},
+                            {icon: "view-list-details", text: i18nc("@action:button", "List")},
+                            {icon: "view-catalog", text: i18nc("@action:button", "Bookshelf")}
+                        ]
+                        delegate: QQC2.ToolButton {
+                            required property int index
+                            required property var modelData
+                            icon.name: modelData.icon
+                            text: modelData.text
+                            display: QQC2.AbstractButton.IconOnly
+                            checkable: true
+                            checked: page.booksView === index
+                            onClicked: page.booksView = index
+                            QQC2.ToolTip.text: text
+                            QQC2.ToolTip.visible: hovered
+                            QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+                        }
                     }
                 }
             }

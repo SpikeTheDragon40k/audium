@@ -16,6 +16,7 @@
 #include "integration/notifier.h"
 #include "integration/tray.h"
 #include "sessionwiring.h"
+#include "theme.h"
 #ifdef AUDIUM_HAVE_MPRIS
 #include "integration/mpris.h"
 #endif
@@ -37,7 +38,7 @@ int main(int argc, char *argv[])
                      KAboutLicense::Unknown);
     about.setDesktopFileName(QStringLiteral("org.audium.Audium"));
     KAboutData::setApplicationData(about);
-    QGuiApplication::setWindowIcon(QIcon::fromTheme(QStringLiteral("audiobook"), QIcon::fromTheme(QStringLiteral("media-playback-start"))));
+    QGuiApplication::setWindowIcon(TrayIcon::appIcon());
 
     // Use the desktop (Breeze) style unless the user chose another one.
     if (qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE")) {
@@ -54,6 +55,8 @@ int main(int argc, char *argv[])
                      QStandardPaths::writableLocation(QStandardPaths::CacheLocation))) {
         session.setDatabasePath(library.getDatabasePath());
     }
+    // The saved colour theme is applied before the window appears.
+    Theme theme(&session);
 
     // Desktop integrations; each one may fail on its own (it then only logs).
     TrayIcon tray(&player, &session);

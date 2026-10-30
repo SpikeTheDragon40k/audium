@@ -147,12 +147,24 @@ Kirigami.ApplicationWindow {
     onVisibleChanged: if (visible) hiddenToTray = false
 
     minimumWidth: Kirigami.Units.gridUnit * 20
-    minimumHeight: Kirigami.Units.gridUnit * 20
-    width: Kirigami.Units.gridUnit * 50
-    height: Kirigami.Units.gridUnit * 35
+    // Below this the header, tabs and player leave no room for the books.
+    minimumHeight: Kirigami.Units.gridUnit * 25
+    /// Width of the column a page opens in, next to the library (book
+    /// details, a group's books, Now Playing): about 40% of a wide window.
+    readonly property int sideColumnWidth: Math.round(Math.max(Kirigami.Units.gridUnit * 20,
+        Math.min(width * 0.4, Kirigami.Units.gridUnit * 34)))
+    readonly property int defaultWidth: Kirigami.Units.gridUnit * 50
+    readonly property int defaultHeight: Kirigami.Units.gridUnit * 35
+    width: defaultWidth
+    height: defaultHeight
 
+    pageStack.defaultColumnWidth: sideColumnWidth
     pageStack.initialPage: LibraryPage {
         id: libraryPage
+        // The library takes what the side columns leave (at least one
+        // column's width; Kirigami scrolls when they don't all fit).
+        Kirigami.ColumnView.fillWidth: true
+        Kirigami.ColumnView.reservedSpace: Math.max(1, root.pageStack.depth - 1) * root.sideColumnWidth
         player: root.player
         library: root.library
         session: root.session
@@ -214,13 +226,19 @@ Kirigami.ApplicationWindow {
     }
 
     // One persistent instance: it keeps its state when closed and reopened.
-    NowPlayingPage {
-        id: nowPlayingPage
-        visible: false
-        player: root.player
-        session: root.session
-        skipBackMs: root.skipBackMs
-        skipForwardMs: root.skipForwardMs
+    // Created with the page stack as parent, like the other pages: declared
+    // as a child of the window, it made Qt report binding loops when shown
+    // in a narrow window.
+    readonly property NowPlayingPage nowPlayingPage: nowPlayingComponent.createObject(pageStack, {
+        visible: false,
+        player: root.player,
+        session: root.session,
+        skipBackMs: Qt.binding(() => root.skipBackMs),
+        skipForwardMs: Qt.binding(() => root.skipForwardMs)
+    })
+    Component {
+        id: nowPlayingComponent
+        NowPlayingPage {}
     }
 
     Shortcut {

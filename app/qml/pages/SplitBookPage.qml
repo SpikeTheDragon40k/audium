@@ -17,6 +17,10 @@ Kirigami.ScrollablePage {
     property var selected: []
 
     objectName: "splitBookPage"
+    // In a wide window the content keeps a readable width, centred.
+    readonly property real contentMaxWidth: Kirigami.Units.gridUnit * 45
+    leftPadding: Math.max(Kirigami.Units.gridUnit, (width - contentMaxWidth) / 2)
+    rightPadding: leftPadding
     title: i18nc("@title", "Split Book")
 
     BookDetails {

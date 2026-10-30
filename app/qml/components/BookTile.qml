@@ -64,5 +64,9 @@ QQC2.ItemDelegate {
             color: Kirigami.Theme.disabledTextColor
             font: Kirigami.Theme.smallFont
         }
+        // Covers line up at the top whatever the title's length.
+        Item {
+            Layout.fillHeight: true
+        }
     }
 }

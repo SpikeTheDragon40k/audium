@@ -1,6 +1,7 @@
 #include "tray.h"
 
 #include <QAction>
+#include <QIcon>
 #include <QMenu>
 #include <QSystemTrayIcon>
 #include <QWindow>
@@ -20,9 +21,16 @@ TrayIcon::TrayIcon(PlaybackController *player, PlaybackSession *session, QObject
 {
     m_item->setCategory(KStatusNotifierItem::ApplicationStatus);
     m_item->setStatus(KStatusNotifierItem::Active);
-    m_item->setIconByName(QStringLiteral("audiobook"));
+    // By name when the icon theme has it (installed), so the tray host can
+    // pick its size; otherwise the built-in image.
+    if (QIcon::hasThemeIcon(QString::fromLatin1(AppIconName))) {
+        m_item->setIconByName(QString::fromLatin1(AppIconName));
+        m_item->setToolTipIconByName(QString::fromLatin1(AppIconName));
+    } else {
+        m_item->setIconByPixmap(appIcon());
+        m_item->setToolTipIconByPixmap(appIcon());
+    }
     m_item->setTitle(i18nc("@title application name", "Audium"));
-    m_item->setToolTipIconByName(QStringLiteral("audiobook"));
     m_item->setToolTipTitle(i18nc("@title application name", "Audium"));
 
     m_nowPlaying = m_menu->addAction(QString());
@@ -40,6 +48,11 @@ TrayIcon::TrayIcon(PlaybackController *player, PlaybackSession *session, QObject
     connect(player, &PlaybackController::trackIndexChanged, this, &TrayIcon::update);
     connect(session, &PlaybackSession::bookTitleChanged, this, &TrayIcon::update);
     update();
+}
+
+QIcon TrayIcon::appIcon()
+{
+    return QIcon::fromTheme(QString::fromLatin1(AppIconName), QIcon(QStringLiteral(":/icons/org.audium.Audium.svg")));
 }
 
 // The menu belongs to the KStatusNotifierItem, which deletes it.

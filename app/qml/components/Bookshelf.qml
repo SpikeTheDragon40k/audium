@@ -21,7 +21,8 @@ ListView {
     clip: true
     boundsBehavior: Flickable.StopAtBounds
     QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
-    reuseItems: false
+    // Shelves and covers are recycled while scrolling, as in the grid.
+    reuseItems: true
     spacing: Kirigami.Units.largeSpacing
 
     model: GroupListModel {
@@ -59,13 +60,16 @@ ListView {
         visible: books.count > 0
         spacing: 0
 
+        // The database path is set last, once the scope is: every property
+        // change reloads the model, and before the scope arrives that would
+        // be the whole library (twice per shelf, with many shelves).
         BookListModel {
             id: books
-            databasePath: shelves.databasePath
             revision: shelves.revision
             scopeKind: shelf.scopeKind
             scopeId: shelf.scopeId
         }
+        Component.onCompleted: books.databasePath = Qt.binding(() => shelves.databasePath)
         Kirigami.Heading {
             Layout.fillWidth: true
             Layout.leftMargin: Kirigami.Units.largeSpacing
@@ -75,10 +79,12 @@ ListView {
         }
         ListView {
             Layout.fillWidth: true
-            Layout.preferredHeight: Kirigami.Units.gridUnit * 12
+            // A cover (the tile's width) and its progress bar.
+            Layout.preferredHeight: Kirigami.Units.gridUnit * 7 + Kirigami.Units.smallSpacing * 4
             orientation: ListView.Horizontal
             model: books
             clip: true
+            reuseItems: true
             spacing: Kirigami.Units.largeSpacing
             leftMargin: Kirigami.Units.largeSpacing
             rightMargin: Kirigami.Units.largeSpacing

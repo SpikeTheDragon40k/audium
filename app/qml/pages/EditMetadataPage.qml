@@ -16,6 +16,10 @@ Kirigami.ScrollablePage {
     signal done()
 
     objectName: "editMetadataPage"
+    // In a wide window the content keeps a readable width, centred.
+    readonly property real contentMaxWidth: Kirigami.Units.gridUnit * 45
+    leftPadding: Math.max(Kirigami.Units.gridUnit, (width - contentMaxWidth) / 2)
+    rightPadding: leftPadding
     title: i18nc("@title", "Edit Metadata")
 
     BookDetails {

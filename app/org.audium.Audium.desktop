@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Audium
+GenericName=Audiobook Player
+Comment=Listen to your audiobook library, offline
+Exec=audium
+Icon=org.audium.Audium
+Terminal=false
+Categories=Qt;KDE;AudioVideo;Audio;Player;
+Keywords=audiobook;audio;book;m4b;mp3;player;listen;
+StartupNotify=true
+SingleMainWindow=true

@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.audium.Audium</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <!-- The project's licence is not chosen yet (README, "License"). -->
+  <project_license>LicenseRef-proprietary</project_license>
+  <name>Audium</name>
+  <summary>Listen to your audiobook library, offline</summary>
+  <description>
+    <p>
+      Audium is a desktop audiobook player for the books you already have on
+      disk. It works entirely offline: no accounts, no cloud, no online lookups,
+      no telemetry.
+    </p>
+    <p>
+      It only reads your library. Audium never changes, moves, renames or
+      deletes your audio files; everything it learns or you edit is kept in its
+      own database.
+    </p>
+    <ul>
+      <li>Imports large, messy libraries: single m4b files, folders of parts, CD1/CD2 subfolders and loose files</li>
+      <li>Remembers where you are in every book, with per-book speed</li>
+      <li>Chapters, bookmarks with notes, and a sleep timer that fades out</li>
+      <li>Search, authors, series, collections and a bookshelf view</li>
+      <li>Listening statistics, and export/import of your progress</li>
+      <li>Media keys, the Plasma media controls and a tray icon</li>
+    </ul>
+  </description>
+  <url type="homepage">https://github.com/SpikeTheDragon40k/audium</url>
+  <url type="bugtracker">https://github.com/SpikeTheDragon40k/audium/issues</url>
+  <launchable type="desktop-id">org.audium.Audium.desktop</launchable>
+  <provides>
+    <binary>audium</binary>
+  </provides>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+    <category>Player</category>
+  </categories>
+  <keywords>
+    <keyword>audiobook</keyword>
+    <keyword>m4b</keyword>
+    <keyword>player</keyword>
+  </keywords>
+  <developer id="org.audium">
+    <name>Adriano Inghingolo</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <releases>
+    <release version="0.1.0" date="2026-10-30">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

@@ -44,6 +44,9 @@ Kirigami.ScrollablePage {
     }
 
     objectName: "bookDetailsPage"
+    // A side column next to the library, as wide as pageStack's column
+    // width (Main.qml). Kirigami would otherwise stretch the last column.
+    Kirigami.ColumnView.fillWidth: false
     title: details.valid ? details.title : i18nc("@title", "Book")
 
     actions: [

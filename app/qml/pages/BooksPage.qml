@@ -20,6 +20,9 @@ Kirigami.Page {
     property bool listView: false
 
     objectName: "booksPage"
+    // A side column next to the library, as wide as pageStack's column
+    // width (Main.qml). Kirigami would otherwise stretch the last column.
+    Kirigami.ColumnView.fillWidth: false
 
     actions: [
         Kirigami.Action {

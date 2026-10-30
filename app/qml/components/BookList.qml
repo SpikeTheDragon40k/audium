@@ -13,7 +13,9 @@ ListView {
     objectName: "listView"
     clip: true
     boundsBehavior: Flickable.StopAtBounds
-    QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
+    QQC2.ScrollBar.vertical: QQC2.ScrollBar {
+        id: scrollBar
+    }
     reuseItems: true
     delegate: QQC2.ItemDelegate {
         id: row
@@ -27,7 +29,8 @@ ListView {
         required property real progress
         required property bool finished
         objectName: "bookTile"
-        width: ListView.view.width
+        // Room for the scroll bar, which is drawn over the rows.
+        width: ListView.view.width - scrollBar.width
         onClicked: list.bookRequested(bookId)
         contentItem: RowLayout {
             spacing: Kirigami.Units.largeSpacing

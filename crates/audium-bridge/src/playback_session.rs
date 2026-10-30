@@ -76,6 +76,9 @@ pub mod qobject {
         #[qproperty(QString, book_authors, cxx_name = "bookAuthors", READ, NOTIFY)]
         /// Closing the window while a book plays hides it to the tray.
         #[qproperty(bool, close_to_tray, cxx_name = "closeToTray")]
+        /// Colour theme: 0 follows the desktop, 1 Dracula, 2 Nord (applied
+        /// by the C++ Theme object).
+        #[qproperty(i32, theme)]
         type PlaybackSession = super::PlaybackSessionRust;
 
         /// Loads a library book (resuming where it was left) and plays it.
@@ -201,6 +204,9 @@ const DEFAULT_SKIP_FORWARD_MS: i32 = 30_000;
 const KEY_SKIP_BACK: &str = "skip_back_ms";
 const KEY_SKIP_FORWARD: &str = "skip_forward_ms";
 const KEY_CLOSE_TO_TRAY: &str = "close_to_tray";
+const KEY_THEME: &str = "theme";
+/// Themes are 0 (system), 1 (Dracula) and 2 (Nord).
+const THEMES: std::ops::RangeInclusive<i32> = 0..=2;
 
 struct LoadedTrack {
     id: TrackId,
@@ -237,6 +243,7 @@ pub struct PlaybackSessionRust {
     revision: i32,
     book_authors: QString,
     close_to_tray: bool,
+    theme: i32,
 
     writer: Option<Writer>,
     current: Option<Current>,
@@ -267,6 +274,7 @@ impl Default for PlaybackSessionRust {
             revision: 0,
             book_authors: QString::default(),
             close_to_tray: true,
+            theme: 0,
             writer: None,
             current: None,
             progress: ProgressTracker::new(),
@@ -297,6 +305,9 @@ impl cxx_qt::Initialize for qobject::PlaybackSession {
             .on_close_to_tray_changed(|s| {
                 s.save_setting(KEY_CLOSE_TO_TRAY, i32::from(s.close_to_tray))
             })
+            .release();
+        this.as_mut()
+            .on_theme_changed(|s| s.save_setting(KEY_THEME, s.theme))
             .release();
     }
 }
@@ -384,7 +395,14 @@ impl qobject::PlaybackSession {
             .is_none_or(|v| v != "0");
         self.as_mut().set_skip_back_ms(back);
         self.as_mut().set_skip_forward_ms(forward);
+        let theme = playback::setting(db.conn(), KEY_THEME)
+            .ok()
+            .flatten()
+            .and_then(|v| v.parse::<i32>().ok())
+            .filter(|v| THEMES.contains(v))
+            .unwrap_or(0);
         self.as_mut().set_close_to_tray(close_to_tray);
+        self.as_mut().set_theme(theme);
     }
 
     fn save_setting(&self, key: &'static str, value: i32) {

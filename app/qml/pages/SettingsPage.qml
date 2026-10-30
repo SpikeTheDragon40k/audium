@@ -12,6 +12,10 @@ Kirigami.ScrollablePage {
     required property PlaybackSession session
 
     objectName: "settingsPage"
+    // In a wide window the content keeps a readable width, centred.
+    readonly property real contentMaxWidth: Kirigami.Units.gridUnit * 45
+    leftPadding: Math.max(Kirigami.Units.gridUnit, (width - contentMaxWidth) / 2)
+    rightPadding: leftPadding
     title: i18nc("@title", "Settings")
 
     ColumnLayout {
@@ -53,7 +57,10 @@ Kirigami.ScrollablePage {
                 }
             }
         }
-        RowLayout {
+        // Wraps onto more lines in a narrow window.
+        Flow {
+            Layout.fillWidth: true
+            spacing: Kirigami.Units.smallSpacing
             QQC2.Button {
                 icon.name: "folder-new"
                 text: i18nc("@action:button", "Add Folder…")
@@ -118,6 +125,26 @@ Kirigami.ScrollablePage {
                 text: i18nc("@option:check", "Keep playing in the system tray")
                 checked: page.session.closeToTray
                 onToggled: page.session.closeToTray = checked
+            }
+        }
+
+        Kirigami.Heading {
+            level: 2
+            text: i18nc("@title:group", "Appearance")
+        }
+        Kirigami.FormLayout {
+            Layout.fillWidth: true
+            QQC2.ComboBox {
+                objectName: "themeBox"
+                Kirigami.FormData.label: i18nc("@label:listbox", "Colours:")
+                // Same order as PlaybackSession.theme.
+                model: [
+                    i18nc("@item:inlistbox colour theme", "System (Breeze)"),
+                    i18nc("@item:inlistbox colour theme", "Dracula"),
+                    i18nc("@item:inlistbox colour theme", "Nord")
+                ]
+                currentIndex: page.session.theme
+                onActivated: index => page.session.theme = index
             }
         }
 

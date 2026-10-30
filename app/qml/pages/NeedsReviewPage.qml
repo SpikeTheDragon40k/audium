@@ -20,6 +20,9 @@ Kirigami.ScrollablePage {
     property var selected: []
 
     objectName: "needsReviewPage"
+    // A side column next to the library, as wide as pageStack's column
+    // width (Main.qml). Kirigami would otherwise stretch the last column.
+    Kirigami.ColumnView.fillWidth: false
     title: i18nc("@title", "Needs Review")
 
     actions: [

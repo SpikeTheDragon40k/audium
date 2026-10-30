@@ -15,6 +15,9 @@ Kirigami.ScrollablePage {
     required property int skipForwardMs
 
     objectName: "nowPlayingPage"
+    // A side column next to the library, as wide as pageStack's column
+    // width (Main.qml). Kirigami would otherwise stretch the last column.
+    Kirigami.ColumnView.fillWidth: false
 
     actions: [
         Kirigami.Action {

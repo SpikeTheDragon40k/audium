@@ -13,7 +13,7 @@ Status: proposed and approved 2026-10-29, before Milestone 0. Sections marked *(
 | KF6 | Kirigami 6.31, kirigami-addons 1.16, KI18n, KConfig, KCoreAddons, KCrash, KDBusAddons, KNotifications, KStatusNotifierItem, KIconThemes, qqc2-desktop-style, Breeze | minimum supported: KF 6.10 |
 | CMake / Ninja / ECM / Corrosion | not installed (repo: 4.4.5 / 1.13.2 / 6.31.0 / 0.6.1) | required for M0 |
 | mpv / libmpv | not installed (repo: 0.41.0, libmpv.so.2) | required for M1 |
-| ffmpeg / ffprobe | 9.0.2 | fixtures; optional chapter fallback |
+| ffmpeg / ffprobe | 9.0.2 | test fixtures only |
 | SQLite | 3.54.0 system | rusqlite `bundled` is used instead |
 | Crates | cxx-qt 0.10.0, lofty 0.25.5, rusqlite 0.41.1 | CXX-Qt with Qt 6.12 not yet validated (risk R1) |
 
@@ -131,8 +131,9 @@ Implementation notes (M1):
 lofty covers tags, duration and artwork, but not ID3 `CHAP`/`CTOC` or MP4 chapters. Chapter sources, in order:
 1. the `id3` crate for MP3 CHAP/CTOC;
 2. `mp4ameta` for MP4/M4B chapters (Nero `chpl` and QuickTime chapter tracks);
-3. `ffprobe` as an optional subprocess fallback, used only if it's on PATH;
-4. chapters inferred from tracks.
+3. chapters inferred from tracks.
+
+The original plan had an optional `ffprobe` subprocess as a third source. It was never built: the M2 spike showed the crates read every fixture format, and nothing calls `ffprobe` at runtime. Files in other formats get one chapter per file (README, "Known limitations").
 
 libmpv is not used for scanning. Milestone 2 starts with a spike that verifies each format against generated fixtures.
 
@@ -218,7 +219,7 @@ There's no async runtime. Rust worker threads never touch QObjects.
 - **Kirigami 6.31 rule:** page actions must not be hidden when the page is created, neither by `DisplayHint.AlwaysHide` nor by `visible: false`. Either makes `ActionToolBar` destroy delegates during incubation (Qt warnings). Disable actions instead, or use an `InlineMessage` with an action, like the "Needs review" banner.
 - **Layers:** Settings, Edit Metadata and Split Book open as `pageStack.layers` over the window, with a back button; Escape closes them. As columns, a wide window gave them no way to close. Kirigami 6.31 warns "StackView has detected conflicting anchors" on every layer push, even for a plain page in a minimal standalone file; it's harmless, and that one message is exempted in `test_bridge`.
 - **Closing columns:** book details, group pages, Needs Review and Now Playing are columns beside the library and carry a Close action (`Main.closePage`). In a wide window Kirigami's back button is disabled for columns that are all visible. Escape closes the topmost layer, otherwise the rightmost column.
-- **Pages:** created with `pageStack` as parent and destroyed shortly after removal. Destroying them immediately triggers the same incubation warning when navigating quickly. Now Playing is one persistent instance.
+- **Pages:** created with `pageStack` as parent and destroyed shortly after removal. Destroying them immediately triggers the same incubation warning when navigating quickly. Now Playing is one persistent instance, also created with `pageStack` as parent: declared as a child of the window, it made Qt report binding loops when shown in a narrow window (found in M7).
 - **Views fill the page and scroll themselves.** A `Loader` inside a `ScrollView` gets no size, which made the library views blank and unclickable (found in M3).
 - **Tests:** any Qt/QML warning fails `test_bridge`. It loads the UI with an empty and with a full library, checks view sizes, and clicks tiles with real mouse events.
 
@@ -285,8 +286,34 @@ Every integration is a small, independent C++ class in `app/src/integration/`, c
   - **Ownership:** the item owns its context menu and deletes it; deleting it again crashed on quit (found by the M6 test).
 - **Close to tray:** `Main.qml`'s `onClosing` hides the window instead of closing while a book plays, when the setting (`settings.close_to_tray`, default on; Settings → Playback) is on and a tray is available. Otherwise closing quits; the quit path saves progress.
 - **Notifications (`notifier.{h,cpp}`, KNotifications):** "Book finished" and "Sleep timer" (playback paused). They use the desktop's standard notification event (`KNotification::event(StandardEvent…)`), so no `.notifyrc` has to be installed and they work from the build tree. They are driven by the session's `bookFinished` and `sleepTimerExpired` signals.
-- **Windows SMTC:** not written yet (decision in M6). It can be neither compiled nor tested without a Windows machine. It slots in as another class beside these, in the Windows bring-up (M7).
+- **Windows SMTC:** not written yet (decision in M6). It can be neither compiled nor tested without a Windows machine. It slots in as another class beside these, in the Windows milestone (M8).
 - **Tests (`test_integration`):** run under `dbus-run-session` with `app/tests/dbus-session.conf`, a private bus with no activatable services. Without that config, the bus started `xdg-desktop-portal` on demand, which kept ctest's output pipe open until the timeout. MPRIS is driven from a second bus connection with async calls, exactly as a desktop client would.
+
+## 13a. Release work (M7)
+
+- **Window sizes.** The library takes what the side column leaves:
+  - `Main.sideColumnWidth` is about 40% of the window (20–34 grid units). It is `pageStack.defaultColumnWidth`, and the side pages (details, a group's books, Needs Review, Now Playing) set `Kirigami.ColumnView.fillWidth: false`; Kirigami otherwise stretches the last column.
+  - The library page is `fillWidth` with `reservedSpace` = one side column per open column. When the columns don't fit, Kirigami scrolls them (standard behaviour).
+  - Grids fit as many columns of at least 9 grid units as they can and share the width. Cell heights come from `TileMetrics` (font metrics of the text under a cover), so text is never cut off; covers line up at the top. Views leave room for their scroll bar, which is drawn over the content.
+  - The library tabs show icons only when the page is narrower than 30 grid units. The desktop style draws a tab's `text` even with `display: IconOnly`, so compact tabs have no text (tooltip and accessible name instead).
+  - The books toolbar puts the search field on its own row when narrow; button rows in Settings wrap (`Flow`); Settings, Statistics and the editors keep a readable width, centred, in a wide window. The window's minimum is 20 × 25 grid units.
+- **`test_layout`:** every page at the minimum, the default and a 1920×1080 window, in the desktop style with Breeze icons. It fails on any warning, and on text a person couldn't read: text, buttons or tabs cut off at the window's or a clipping view's edge (unless that view scrolls sideways, like a row of covers), a tab not fully shown, or text sticking out of its button, tile or row. Buttons count as text because the desktop style draws their labels itself. With `AUDIUM_SCREENSHOT_DIR` it saves every page as a PNG.
+- **Themes.** `Theme` (C++, `app/src/theme.{h,cpp}`) applies `PlaybackSession.theme` (setting `theme`: 0 system, 1 Dracula, 2 Nord) to the whole application, the way `KColorSchemeManager` does: the palette from `KColorScheme::createApplicationPalette`, and the `KDE_COLOR_SCHEME_PATH` application property for the colours a palette has no role for. Qt Quick controls and Kirigami colours follow; System restores the desktop's palette. The tokens are KDE colour-scheme files, `app/themes/*.colors`, installed to `share/audium/themes` and copied into the build tree. QML uses only `Kirigami.Theme` colours, never literal ones.
+- **Performance** (`scripts/perf.sh`: `test_perf` on a library from `scripts/make-big-library.sh`; 1000 books, 4500 files; offscreen software rendering, 8-core desktop, 2026-10-30):
+
+  | Measurement | Result |
+  |---|---|
+  | First scan | 0.6–1.0 s |
+  | Rescan, nothing changed | 0.1 s |
+  | Window shown with Home filled | 0.5–0.7 s |
+  | Books grid / list / authors: shown | 0–45 ms |
+  | Scrolling, frames per two wheel notches: grid, list, authors | 7–8 ms average, 21–29 ms worst |
+  | Scrolling: bookshelf (about 150 small shelves) | 26 ms average, 70 ms worst |
+  | Search (FTS) to grid updated | 70–85 ms |
+  | Memory: before loading / window open | 79 / 200 MiB |
+
+  Found and fixed: every bookshelf shelf queried the whole library twice before its own scope arrived (a model reloads on each property change), and shelves weren't recycled. The bookshelf still creates a shelf with its own model and horizontal view per series or author; that's its remaining cost.
+- **Packaging (Linux).** `app/org.audium.Audium.desktop`, `app/org.audium.Audium.metainfo.xml` (AppStream; validated by `scripts/check.sh` with `appstreamcli` and `desktop-file-validate`) and the icon `app/icons/org.audium.Audium.svg` (hicolor scalable; also compiled in, for uninstalled builds and the tray). `packaging/linux/PKGBUILD` builds from a release tarball, fetching crates in `prepare()` and building offline with `BUILD_TESTING=OFF`. `scripts/release.sh` checks the tree and tag, runs `scripts/check.sh`, makes the tarball and the package, and publishes with `gh` only after asking.
 
 ## 14. Cross-cutting
 
@@ -302,5 +329,5 @@ Every integration is a small, independent C++ class in `app/src/integration/`, c
   3. a thin hand-written `cxx` + C++ QObject layer.
 
   I'll stop and ask before switching.
-- **R2:** gaps in lofty, id3 and mp4ameta on unusual files. Mitigated by the ffprobe fallback and by chapters inferred from tracks.
+- **R2:** gaps in lofty, id3 and mp4ameta on unusual files. Mitigated by chapters inferred from tracks; an `ffprobe` fallback could be added if real files need it.
 - **R3:** Craft build time, and whether mpv is available for Windows through Craft.

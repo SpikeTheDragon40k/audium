@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QIcon>
 #include <QObject>
 #include <QPointer>
 
@@ -23,6 +24,11 @@ public:
     ~TrayIcon() override;
 
     void setWindow(QWindow *window);
+
+    // Audium's icon: from the icon theme when installed, otherwise the copy
+    // built into the program. Also the window icon.
+    static constexpr const char *AppIconName = "org.audium.Audium";
+    static QIcon appIcon();
 
     // Whether the desktop shows tray icons (otherwise closing quits).
     bool isAvailable() const;

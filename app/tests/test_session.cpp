@@ -381,17 +381,25 @@ private Q_SLOTS:
         QTRY_VERIFY(near(savedPosition(book), 2000));
     }
 
-    void skipIntervalsArePersisted()
+    void settingsArePersisted()
     {
         {
             Run run(m_dbPath);
             QCOMPARE(run.session.getSkipBackMs(), 15000);
+            QCOMPARE(run.session.getTheme(), 0);
             run.session.setSkipBackMs(10000);
             run.session.setSkipForwardMs(45000);
+            run.session.setTheme(2);
+        }
+        {
+            Run run(m_dbPath);
+            QCOMPARE(run.session.getSkipBackMs(), 10000);
+            QCOMPARE(run.session.getSkipForwardMs(), 45000);
+            QCOMPARE(run.session.getTheme(), 2);
+            run.session.setTheme(7); // unknown: saved, but not loaded again
         }
         Run run(m_dbPath);
-        QCOMPARE(run.session.getSkipBackMs(), 10000);
-        QCOMPARE(run.session.getSkipForwardMs(), 45000);
+        QCOMPARE(run.session.getTheme(), 0);
     }
 };
 

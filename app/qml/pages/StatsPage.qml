@@ -16,6 +16,10 @@ Kirigami.ScrollablePage {
     signal bookRequested(var bookId)
 
     objectName: "statsPage"
+    // In a wide window the content keeps a readable width, centred.
+    readonly property real contentMaxWidth: Kirigami.Units.gridUnit * 60
+    leftPadding: Math.max(Kirigami.Units.gridUnit, (width - contentMaxWidth) / 2)
+    rightPadding: leftPadding
     title: i18nc("@title", "Listening Statistics")
 
     StatsModel {
@@ -62,7 +66,9 @@ Kirigami.ScrollablePage {
         GridLayout {
             Layout.fillWidth: true
             visible: stats.totalMs > 0
-            columns: Math.max(1, Math.floor(page.width / (Kirigami.Units.gridUnit * 10)))
+            // 6, 3, 2 or 1 per row, so the six tiles fill whole rows.
+            readonly property int fit: Math.floor((page.width - page.leftPadding - page.rightPadding) / (Kirigami.Units.gridUnit * 10))
+            columns: fit >= 6 ? 6 : fit >= 3 ? 3 : Math.max(1, fit)
             columnSpacing: Kirigami.Units.largeSpacing
             rowSpacing: Kirigami.Units.largeSpacing
             Tile { label: i18nc("@label stat", "Today"); value: TimeFormat.duration(stats.todayMs, i18nc) }

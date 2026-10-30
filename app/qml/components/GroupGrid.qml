@@ -13,18 +13,27 @@ GridView {
     signal groupMenuRequested(var groupId, string name, Item item)
 
     readonly property real usableWidth: width - leftMargin - rightMargin
-    readonly property int columns: Math.max(1, Math.floor(usableWidth / (Kirigami.Units.gridUnit * 10)))
+    // As many columns as fit tiles of at least 9 grid units; the tiles
+    // then share the width.
+    readonly property int columns: Math.max(1, Math.floor(usableWidth / (Kirigami.Units.gridUnit * 9)))
 
     objectName: "groupView"
     clip: true
     boundsBehavior: Flickable.StopAtBounds
-    QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
+    QQC2.ScrollBar.vertical: QQC2.ScrollBar {
+        id: scrollBar
+    }
     cellWidth: Math.floor(usableWidth / columns)
-    cellHeight: cellWidth + Kirigami.Units.gridUnit * 3
+    cellHeight: cellWidth + metrics.groupText
     leftMargin: Kirigami.Units.smallSpacing
-    rightMargin: Kirigami.Units.smallSpacing
+    // Room for the scroll bar, which is drawn over the view.
+    rightMargin: Kirigami.Units.smallSpacing + scrollBar.width
     topMargin: Kirigami.Units.smallSpacing
     reuseItems: true
+
+    TileMetrics {
+        id: metrics
+    }
     delegate: QQC2.ItemDelegate {
         id: tile
         required property var groupId
@@ -58,6 +67,9 @@ GridView {
                 text: i18ncp("@info", "%1 book", "%1 books", tile.bookCount)
                 color: Kirigami.Theme.disabledTextColor
                 font: Kirigami.Theme.smallFont
+            }
+            Item {
+                Layout.fillHeight: true
             }
         }
     }

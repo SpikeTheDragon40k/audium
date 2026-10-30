@@ -10,6 +10,8 @@ add_library(audium_ui STATIC
     src/playback/mpvplaybackbackend.h
     src/sessionwiring.cpp
     src/sessionwiring.h
+    src/theme.cpp
+    src/theme.h
     src/integration/notifier.cpp
     src/integration/notifier.h
     src/integration/tray.cpp
@@ -46,6 +48,7 @@ qt_add_qml_module(audium_ui
         qml/components/Bookshelf.qml
         qml/components/DailyChart.qml
         qml/components/SleepTimerButton.qml
+        qml/components/TileMetrics.qml
         qml/components/TimeFormat.js
         qml/components/ReviewReasons.js
 )
@@ -61,8 +64,18 @@ target_link_libraries(audium_ui PUBLIC
     Qt::Widgets
     KF6::Notifications
     KF6::StatusNotifierItem
+    KF6::ColorScheme
+    KF6::ConfigCore
     audium_bridge_qml
 )
+
+# Colour themes (Settings → Appearance). Also copied into the build tree, so
+# an uninstalled build finds them next to its bin directory.
+set(AUDIUM_THEMES themes/Dracula.colors themes/Nord.colors)
+install(FILES ${AUDIUM_THEMES} DESTINATION ${KDE_INSTALL_DATADIR}/audium/themes)
+foreach(theme ${AUDIUM_THEMES})
+    configure_file(${theme} ${CMAKE_BINARY_DIR}/share/audium/${theme} COPYONLY)
+endforeach()
 
 add_executable(audium
     src/main.cpp
@@ -76,3 +89,10 @@ target_link_libraries(audium PRIVATE
 )
 
 install(TARGETS audium ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
+
+# The application icon: in the icon theme when installed, and built in as a
+# fallback (uninstalled builds, Windows).
+qt_add_resources(audium_ui "icons" PREFIX "/" FILES icons/org.audium.Audium.svg)
+install(FILES icons/org.audium.Audium.svg DESTINATION ${KDE_INSTALL_FULL_ICONDIR}/hicolor/scalable/apps)
+install(PROGRAMS org.audium.Audium.desktop DESTINATION ${KDE_INSTALL_APPDIR})
+install(FILES org.audium.Audium.metainfo.xml DESTINATION ${KDE_INSTALL_METAINFODIR})

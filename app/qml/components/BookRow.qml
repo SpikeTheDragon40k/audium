@@ -12,8 +12,14 @@ ColumnLayout {
 
     signal bookRequested(var bookId)
 
+    readonly property real tileWidth: Kirigami.Units.gridUnit * 9
+
     visible: list.count > 0
     spacing: 0
+
+    TileMetrics {
+        id: metrics
+    }
 
     Kirigami.Heading {
         Layout.fillWidth: true
@@ -25,7 +31,7 @@ ColumnLayout {
     ListView {
         id: list
         Layout.fillWidth: true
-        Layout.preferredHeight: Kirigami.Units.gridUnit * 13
+        Layout.preferredHeight: tileWidth + metrics.bookText
         orientation: ListView.Horizontal
         model: row.model
         clip: true
@@ -35,7 +41,7 @@ ColumnLayout {
         reuseItems: true
         QQC2.ScrollBar.horizontal: QQC2.ScrollBar {}
         delegate: BookTile {
-            width: Kirigami.Units.gridUnit * 9
+            width: row.tileWidth
             height: ListView.view.height
             onBookRequested: id => row.bookRequested(id)
         }

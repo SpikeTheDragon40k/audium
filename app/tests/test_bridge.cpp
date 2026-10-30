@@ -7,8 +7,6 @@
 #include <QQuickWindow>
 #include <QtQml/QQmlExtensionPlugin>
 #include <QSignalSpy>
-#include <QSqlDatabase>
-#include <QSqlQuery>
 #include <QTemporaryDir>
 #include <algorithm>
 #include <QtTest>
@@ -22,138 +20,12 @@
 #include "audium_bridge/src/library_controller.cxxqt.h"
 #include "audium_bridge/src/playback_session.cxxqt.h"
 #include "sessionwiring.h"
+#include "uitest.h"
 #include "playback/mpvplaybackbackend.h"
 
 Q_IMPORT_QML_PLUGIN(org_audium_appPlugin)
 
-namespace
-{
-// All visual descendants (view delegates are visual, not QObject, children).
-void collectItems(QQuickItem *item, QList<QQuickItem *> &out)
-{
-    for (QQuickItem *child : item->childItems()) {
-        out << child;
-        collectItems(child, out);
-    }
-}
-
-// A book tile of `view` that is on screen and has a size.
-QQuickItem *visibleTile(QQuickItem *view)
-{
-    const QRectF viewRect = view->mapRectToScene(view->boundingRect());
-    QList<QQuickItem *> items;
-    collectItems(view, items);
-    for (QQuickItem *tile : std::as_const(items)) {
-        if (tile->objectName() != QLatin1String("bookTile")) {
-            continue;
-        }
-        const QRectF r = tile->mapRectToScene(tile->boundingRect());
-        if (tile->isVisible() && r.width() > 10 && r.height() > 10 && viewRect.contains(r.center())) {
-            return tile;
-        }
-    }
-    return nullptr;
-}
-
-// With AUDIUM_SCREENSHOT_DIR set, saves what the window shows as <name>.png
-// (for looking at layouts; not an assertion).
-void screenshot(QQuickWindow *window, const QString &name)
-{
-    const QString dir = qEnvironmentVariable("AUDIUM_SCREENSHOT_DIR");
-    if (!dir.isEmpty()) {
-        QTest::qWait(300);
-        window->grabWindow().save(dir + QLatin1Char('/') + name + QStringLiteral(".png"));
-    }
-}
-
-// A tile named `objectName` of `view` that is on screen.
-QQuickItem *visibleItem(QQuickItem *view, const QString &objectName)
-{
-    const QRectF viewRect = view->mapRectToScene(view->boundingRect());
-    QList<QQuickItem *> items;
-    collectItems(view, items);
-    for (QQuickItem *item : std::as_const(items)) {
-        const QRectF r = item->mapRectToScene(item->boundingRect());
-        if (item->objectName() == objectName && item->isVisible() && r.width() > 10 && viewRect.contains(r.center())) {
-            return item;
-        }
-    }
-    return nullptr;
-}
-
-// Waits until `item` stops moving (page and column transitions), as a
-// person would before clicking it.
-bool waitUntilStill(QQuickItem *item)
-{
-    QRectF last = item->mapRectToScene(item->boundingRect());
-    for (int i = 0; i < 40; ++i) {
-        QTest::qWait(100);
-        const QRectF now = item->mapRectToScene(item->boundingRect());
-        if (now == last) {
-            return true;
-        }
-        last = now;
-    }
-    return false;
-}
-
-// Like a user: move the pointer there (ending hovers and their tooltips
-// elsewhere, which would otherwise swallow the press), then click.
-void click(QQuickWindow *window, QQuickItem *item)
-{
-    waitUntilStill(item);
-    const QPoint p = item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint();
-    QTest::mouseMove(window, p);
-    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, p);
-}
-
-// The visible view called `objectName` (views of hidden tabs stay alive).
-QQuickItem *visibleView(QQuickWindow *window, const QString &objectName)
-{
-    for (QQuickItem *v : window->findChildren<QQuickItem *>(objectName)) {
-        if (v->isVisible() && v->width() > 100 && v->height() > 100) {
-            return v;
-        }
-    }
-    return nullptr;
-}
-
-// A visible, enabled button showing the icon `iconName` (e.g. Kirigami's
-// back button), anywhere in the window.
-QQuickItem *visibleButton(QQuickWindow *window, const QString &iconName)
-{
-    QList<QQuickItem *> items;
-    collectItems(window->contentItem(), items);
-    for (QQuickItem *item : std::as_const(items)) {
-        // `icon` is a QQuickIcon value type: read its name through the gadget.
-        const QVariant icon = item->property("icon");
-        const QMetaObject *mo = icon.metaType().metaObject();
-        if (!(icon.metaType().flags() & QMetaType::IsGadget) || !mo || mo->indexOfProperty("name") < 0) {
-            continue;
-        }
-        const QString name = mo->property(mo->indexOfProperty("name")).readOnGadget(icon.constData()).toString();
-        const QRectF r = item->mapRectToScene(item->boundingRect());
-        if (name == iconName && item->isVisible() && item->isEnabled() && r.width() > 4
-            && QRectF(QPointF(0, 0), window->size()).contains(r.center())) {
-            return item;
-        }
-    }
-    return nullptr;
-}
-
-// Clicks `tile` like a user and checks that its book's details page opens.
-bool clickOpensDetails(QQuickWindow *window, QQuickItem *tile)
-{
-    const qint64 id = tile->property("bookId").toLongLong();
-    click(window, tile);
-    return QTest::qWaitFor([&] {
-        const auto pages = window->findChildren<QObject *>(QStringLiteral("bookDetailsPage"));
-        return std::any_of(pages.begin(), pages.end(), [&](QObject *p) {
-            return p->property("bookId").toLongLong() == id;
-        });
-    }, 3000);
-}
-} // namespace
+using namespace uitest;
 
 class TestBridge : public QObject
 {
@@ -442,20 +314,7 @@ private Q_SLOTS:
 
         // Statistics: a 20-minute listening session today shows up in the
         // chart and the "most listened" list, which opens the book.
-        {
-            QSqlDatabase sql = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("stats"));
-            sql.setDatabaseName(library.getDatabasePath());
-            QVERIFY(sql.open());
-            QSqlQuery q(sql);
-            q.prepare(QStringLiteral("INSERT INTO sessions (book_id, started_at, ended_at, start_position_ms, end_position_ms, listened_ms) "
-                                     "VALUES (?, ?, ?, 0, 1200000, 1200000)"));
-            const qint64 start = QDateTime::currentMSecsSinceEpoch() - 1200000;
-            q.addBindValue(m4bId);
-            q.addBindValue(start);
-            q.addBindValue(start + 1200000);
-            QVERIFY(q.exec());
-        }
-        QSqlDatabase::removeDatabase(QStringLiteral("stats"));
+        QVERIFY(addListening(library.getDatabasePath(), m4bId, 1200000));
         QVERIFY(QMetaObject::invokeMethod(window, "showStats"));
         QObject *statsPage = nullptr;
         QTRY_VERIFY((statsPage = window->findChild<QObject *>(QStringLiteral("statsPage"))));

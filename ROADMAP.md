@@ -8,35 +8,27 @@ All builds run locally; GitHub hosts only the code and the Releases (see ARCHITE
 
 ## Current status
 
-- **Done:** environment check and design docs; M0, M1 and M2 on Linux (2026-10-29); M3 on Linux (2026-10-30, reviewed); **M4 on Linux** (2026-10-30, reviewed); **M5 on Linux** (2026-10-30, reviewed); **M6 on Linux** (2026-10-30, awaiting review).
-- **Next:** Milestone 7 (release).
+- **Done:** environment check and design docs; M0, M1 and M2 on Linux (2026-10-29); M3 on Linux (2026-10-30, reviewed); **M4 on Linux** (2026-10-30, reviewed); **M5 on Linux** (2026-10-30, reviewed); **M6 on Linux** (2026-10-30, reviewed); **M7, release on Linux** (2026-10-30, committed; the Arch package build still fails, see below).
+- **On hold:** Milestone 8 (Windows), at the maintainer's request.
+- **Next:** make the Arch package build (`makepkg`), then the maintainer's hands-on review of M7.
 - **Remote:** private GitHub repo `SpikeTheDragon40k/audium`, used for code and Releases only (no GitHub Actions).
 
 ## Resume here (updated 2026-10-30)
 
 State:
-- Branch `main`. M0–M6 are committed and pushed. The maintainer tested M6 on their Plasma desktop (media keys, media widget, tray, close to tray, notifications): all work.
-- `scripts/check.sh` passes. No schema change in M6.
+- Branch `main`. M0–M7 are committed and pushed. M7 was committed at the maintainer's request before their hands-on review. Windows was moved out of M7 into its own milestone, M8, which is **on hold**.
+- `scripts/check.sh` passes. No schema change in M7 (one new setting, `theme`).
+- **The Arch package does not build yet.** `makepkg` (from a tarball of the working tree, `--nodeps`) compiles everything, then the final link of `audium` fails: undefined references to the Rust bridge (`PlaybackSession::…`, `cxx_qt_init_crate_audium_bridge`). Likely cause, not yet confirmed: makepkg's default `lto` option adds `-flto` to the C++ build, which breaks linking with the Rust static library. First thing to try: `options=('!lto')` in `packaging/linux/PKGBUILD`, then rebuild with `makepkg` and install with `pacman -U`.
+- **Open decision for the maintainer: the project licence** (README says "To be decided"). Until then the AppStream file and the PKGBUILD say `LicenseRef-proprietary`, which is what having no licence means. Change both, add a `LICENSE` file and the README section when one is chosen.
 
-Next: Milestone 7 (Release), see its section below. Suggested order: the responsive layout pass (the maintainer's main open complaint), theme tokens (Dracula/Nord), the 1000-book performance pass, PKGBUILD + `.desktop` + icon + AppStream, docs, then Windows (Craft build, SMTC, installer) on a Windows machine.
+Next: fix the package build (above). Then the maintainer reviews M7 by hand (resizing, themes, icon, installed package).
 
 How the work goes (keep doing this):
 - One milestone at a time. At the end: `scripts/check.sh`, update ROADMAP and ARCHITECTURE, then **stop for the maintainer's review**. Commit (no AI trailer) and push only when they say so.
 - The maintainer tries every milestone on their real library (`~/Music`). Real-use bugs found so far were UI-level (blank views, pages that couldn't be closed). For every UI change, test what a person does: click with the mouse in `test_bridge` (move first, wait for animations), and check sizes, not just that objects exist.
 - Scripted file edits go through the checked helper: every pattern must match exactly once. Unchecked edits once silently did nothing.
-- `AUDIUM_SCREENSHOT_DIR=<dir> QT_QPA_PLATFORM=offscreen build/bin/test_bridge` saves screenshots to look at layouts.
-
-Next: Milestone 6 (Desktop integration):
-1. MPRIS2 over QtDBus (`app/src/integration/`):
-   - title = chapter, album = book, artist = author, cover art, position, rate;
-   - next/previous = chapter;
-   - Play/Pause also extends a fading sleep timer (`session.userActivity()`).
-   - Test with `playerctl`/`busctl` against the running app, plus a Qt test that talks to the D-Bus object.
-2. Media keys: through MPRIS (Plasma routes them); check that nothing else is needed.
-3. Notifications (KNotifications): book finished, sleep timer ended. A `.notifyrc` file.
-4. Tray (KStatusNotifierItem): play/pause, current book, quit. Closing the window minimizes to the tray while playing (a setting).
-5. Windows SMTC: an isolated file behind the same integration interface; compiled on Windows only (unverifiable here).
-6. Every integration may fail independently without affecting playback (CLAUDE.md §8).
+- `AUDIUM_SCREENSHOT_DIR=<dir> QT_QPA_PLATFORM=offscreen build/bin/test_layout` saves every page at three window sizes and in both themes, to look at layouts. `test_layout` itself fails on text that can't be read (ARCHITECTURE §13a).
+- `scripts/perf.sh` repeats the performance measurements on a generated 1000-book library.
 
 ## M0 — Foundation
 - Cargo workspace with the 5 crates; `rust-toolchain.toml` (1.99.1).
@@ -433,11 +425,52 @@ Bugs found and fixed during M6 (several were in earlier milestones' code):
 - **MPRIS "Seeked"** was first derived from position jumps and missed small seeks. It now comes from an explicit controller signal.
 - **Test infrastructure:** the private test bus activated `xdg-desktop-portal`, which held ctest's output open. Also, a shell `grep` wrapper (ugrep) hung in a pipeline during development; scripts and checks now call `/usr/bin/grep` and use `timeout`.
 
-## M7 — Release
-- Linux packaging: PKGBUILD, `.desktop` file, icon, AppStream metainfo.
-- Windows: installer (Craft NSIS), built locally.
-- `scripts/release.sh`: build artifacts locally and run `gh release create`.
+## M7 — Release (Linux)
+- **Responsive layout pass** (maintainer's feedback, M3): the UI doesn't scale well when the window is resized. Screenshot every page offscreen at narrow, normal and wide sizes, fix the layouts, and add size checks to the tests.
 - Dracula and Nord theme tokens.
-- **Responsive layout pass** (maintainer's feedback, M3): the UI doesn't scale well when the window is resized. Screenshot every page offscreen at narrow, normal and wide sizes, fix the layouts (Home rows and tiles, grid cells, Now Playing, Book Details, the library and details columns side by side), and add the screenshots or size checks to `test_bridge`.
 - Performance pass on a 1000-book synthetic library: scan time, list scrolling, memory.
+- Linux packaging: PKGBUILD, `.desktop` file, icon, AppStream metainfo; `scripts/release.sh` builds the artifacts locally and runs `gh release create`.
 - Docs and known limitations.
+- (Windows moved to M8.)
+
+### M7 status (2026-10-30)
+Done and verified locally with `scripts/check.sh` (all steps pass), except that the Arch package does not build yet (see "Resume here"). Details in ARCHITECTURE §13a.
+
+**Window sizes:**
+- The library keeps most of the window; a page opened beside it (details, a group's books, Needs Review, Now Playing) takes about 40% (it used to be the reverse: a 360-pixel library and a huge details column).
+- Grids fit as many columns as the width allows. Tiles size themselves from the font, so titles and authors are never cut off, and covers line up.
+- In a narrow window the library tabs become icons, the search field gets its own row, and buttons wrap. Settings, Statistics and the editors stay readable and centred in a wide window.
+- The window's minimum height went from 20 to 25 grid units (below that only the header and player were visible).
+
+**Themes:** Settings → Appearance → Colours: System (Breeze, follows the desktop), Dracula or Nord. Saved, and applied before the window appears.
+
+**Performance** (1000 books; numbers in ARCHITECTURE §13a): first scan about 1 s, unchanged rescan 0.1 s, grid and list scroll at 7 ms per frame, search under 0.1 s, 200 MiB with the window open. The bookshelf was the one slow view: each shelf loaded the whole library twice before its own books. Fixed; it is still the slowest view (26 ms average, 70 ms worst per scroll step), listed as a known limitation.
+
+**Packaging:** `.desktop` file, AppStream metainfo, an original app icon (also used for the window and the tray), install rules, `packaging/linux/PKGBUILD`, `scripts/release.sh`. `makepkg` currently fails at the final link (likely makepkg's LTO; see "Resume here").
+
+**Docs:** README rewritten for users (features, keys, data locations, installing, known limitations); ARCHITECTURE §13a; §6 corrected: the `ffprobe` chapter fallback it described was never built.
+
+Tests:
+- `test_layout` (new): every page at the minimum, default and 1920×1080 size, plus the default size in Dracula and Nord. It fails on any warning and on unreadable text (cut off, a tab not shown, text outside its button or tile). It checks that a theme's colours reach the window and that System restores the desktop's.
+- `test_session`: the theme setting is saved and loaded; an unknown value falls back to System.
+- `test_perf` (not in ctest; `scripts/perf.sh`): scan, rescan, views, scrolling, search, memory, with loose limits.
+- UI test helpers moved to `app/tests/uitest.h`. Tests now add listening data through the `sqlite3` tool in a separate process: Qt's own SQLite in the same process broke the app's file locks ("disk I/O error").
+
+Bugs found and fixed:
+- **Binding-loop warnings on Now Playing in a narrow window** (since M1): the persistent page was created as a child of the window instead of the page stack.
+- **Bookshelf** loaded the whole library twice per shelf (since M4).
+- **List rows and grid tiles** were partly under the scroll bar (since M2).
+
+Not verified:
+- **Everything on the real desktop by hand:** resizing, the themes, the icon in the launcher and tray, installing the package with pacman.
+- **The theme switch back to a light desktop:** tested here only against the dark Breeze colours of this machine.
+
+## M8 — Windows (on hold)
+On hold at the maintainer's request (2026-10-30). Nothing for Windows has been built or tested; the list below is the plan for when it resumes.
+
+Needs a Windows 11 x64 machine; nothing here can be built or tested on Linux.
+- Build with KDE Craft (Qt 6, KF6, mpv, Rust via Corrosion); fix what doesn't compile. Check CXX-Qt on MSVC (risk R1) and long, non-UTF-8-safe paths (`\\?\` prefix, a test).
+- Windows media controls (SMTC) as another class in `app/src/integration/`, beside MPRIS.
+- Tray: KStatusNotifierItem falls back to `QSystemTrayIcon`; check it.
+- Themes: check that `Theme` finds `share/audium/themes` in Craft's layout.
+- Installer (Craft NSIS), built locally, and a Windows step in `scripts/release.sh`.

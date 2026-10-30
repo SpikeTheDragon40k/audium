@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Audium's icon: an open book with sound waves rising from it. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a7bd5"/>
+      <stop offset="1" stop-color="#2a4f9a"/>
+    </linearGradient>
+    <linearGradient id="page" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dfe7f5"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="24" fill="url(#bg)"/>
+  <!-- Sound waves -->
+  <g fill="none" stroke="#ffd166" stroke-width="6" stroke-linecap="round">
+    <path d="M52 50 A16 16 0 0 1 76 50"/>
+    <path d="M42 41 A30 30 0 0 1 86 41"/>
+    <path d="M32 32 A44 44 0 0 1 96 32"/>
+  </g>
+  <!-- Open book -->
+  <path d="M64 70 C54 63 40 61 24 63 L24 98 C40 96 54 98 64 105 Z" fill="url(#page)"/>
+  <path d="M64 70 C74 63 88 61 104 63 L104 98 C88 96 74 98 64 105 Z" fill="url(#page)"/>
+  <path d="M64 70 L64 105" stroke="#2a4f9a" stroke-width="2.5" stroke-linecap="round"/>
+  <g stroke="#9fb3d9" stroke-width="2.5" stroke-linecap="round">
+    <path d="M32 72 C40 71 48 72 56 75"/>
+    <path d="M32 80 C40 79 48 80 56 83"/>
+    <path d="M32 88 C40 87 48 88 56 91"/>
+    <path d="M96 72 C88 71 80 72 72 75"/>
+    <path d="M96 80 C88 79 80 80 72 83"/>
+    <path d="M96 88 C88 87 80 88 72 91"/>
+  </g>
+</svg>

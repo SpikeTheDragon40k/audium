@@ -1,0 +1,43 @@
+# Arch Linux package for Audium, built locally from a release tarball made
+# by scripts/release.sh (which also fills in the checksum).
+pkgname=audium
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Offline audiobook player for KDE Plasma"
+arch=('x86_64')
+url="https://github.com/SpikeTheDragon40k/audium"
+# The project's licence is not chosen yet (README, "License").
+license=('LicenseRef-proprietary')
+depends=(
+    'gcc-libs' 'glibc'
+    'qt6-base' 'qt6-declarative' 'qt6-svg'
+    'kirigami' 'qqc2-desktop-style' 'ki18n' 'kcoreaddons' 'kconfig' 'kcolorscheme'
+    'knotifications' 'kstatusnotifieritem'
+    'mpv' 'hicolor-icon-theme'
+)
+makedepends=('cmake' 'ninja' 'extra-cmake-modules' 'corrosion' 'rust')
+source=("$pkgname-$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+    cd "$pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+    cd "$pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
+    export CARGO_NET_OFFLINE=true
+    # The tests (scripts/check.sh) run before a release, not here.
+    cmake -B build -S . -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DBUILD_TESTING=OFF
+    cmake --build build
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+    DESTDIR="$pkgdir" cmake --install build
+}
