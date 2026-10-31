@@ -53,6 +53,11 @@ qt_add_qml_module(audium_ui
         qml/components/TimeFormat.js
         qml/components/ReviewReasons.js
 )
+# QML is compiled to bytecode only. Compiling it to C++ (Qt's default) links
+# the app against Qt's private API, which is tied to the exact Qt version:
+# packages built that way stop starting after any Qt update of the system.
+# Bytecode for another Qt version is simply recompiled at startup.
+set_target_properties(audium_ui PROPERTIES QT_QMLCACHEGEN_ARGUMENTS "--only-bytecode")
 target_include_directories(audium_ui PUBLIC src)
 # qmltyperegistrar includes registered headers by bare file name.
 target_include_directories(audium_ui PRIVATE src/playback src)

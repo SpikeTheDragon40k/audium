@@ -1,0 +1,24 @@
+#!/usr/bin/make -f
+# Debian and Ubuntu package for Audium, built from a release tarball in a
+# container of each distribution by scripts/build-packages.sh. Rust comes
+# from rustup there (the distributions' Rust is older than Audium needs),
+# so it isn't in Build-Depends.
+
+# The same reason as the PKGBUILD's '!lto': with LTO flags, the C++ compiled
+# inside the Rust bridge's build script can't be linked into the app.
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all optimize=-lto
+
+%:
+	dh $@ --buildsystem=cmake+ninja
+
+# The tests (scripts/check.sh) run before a release, not here. Debian's
+# Corrosion is older than CXX-Qt needs, so CMake downloads its own, which
+# debhelper forbids by default (the Rust crates are downloaded anyway).
+override_dh_auto_configure:
+	dh_auto_configure -- -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+		-DFETCHCONTENT_FULLY_DISCONNECTED=OFF
+
+override_dh_auto_test:
+
+# dwz can't process the Rust parts' debug information.
+override_dh_dwz:

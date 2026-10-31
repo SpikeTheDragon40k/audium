@@ -7,7 +7,7 @@
 - **Safe for your library:** it only reads your audio files. It never changes, moves, renames or deletes them; everything it learns, and everything you edit, is kept in its own database.
 - **Made for real libraries:** single m4b files, folders of parts, CD subfolders and loose files in author folders, with or without good tags. Tested with 1000 books.
 
-Version 1.1.0 is packaged for Arch Linux and Arch-based distributions (Manjaro, EndeavourOS, CachyOS…). On other distributions you can build the Flatpak yourself until it is on Flathub (submission in progress). Windows support is on hold.
+Packages are available for Arch Linux, Fedora, openSUSE Tumbleweed, Debian 13 and Ubuntu 26.10, plus a Flatpak file for any distribution (see [Installing](#installing)). Windows support is on hold.
 
 ## Contents
 
@@ -23,74 +23,92 @@ Version 1.1.0 is packaged for Arch Linux and Arch-based distributions (Manjaro, 
 
 ## Installing
 
-### From a release (recommended)
+Every release on the [Releases page](https://github.com/SpikeTheDragon40k/audium/releases) has packages for these distributions, plus a Flatpak file for any other:
 
-Each release on the [Releases page](https://github.com/SpikeTheDragon40k/audium/releases) has these files:
-
-| File | What it is |
+| Distribution | File |
 |---|---|
-| `audium-<version>-1-x86_64.pkg.tar.zst` | The ready-to-install Arch package |
-| `audium-<version>.tar.gz` | The source code of that release |
-| `PKGBUILD` | The recipe to build the package yourself |
-| `SHA256SUMS` | Checksums, to check the downloads |
+| Arch Linux and Arch-based (Manjaro, EndeavourOS, CachyOS…) | `audium-<version>-1-x86_64.pkg.tar.zst`, or the AUR package [`audium-audiobooks`](https://aur.archlinux.org/packages/audium-audiobooks) |
+| Fedora 44 | `audium-<version>-1.fc44.x86_64.rpm` |
+| openSUSE Tumbleweed | `audium-<version>-1.opensuse_tw.x86_64.rpm` |
+| Debian 13 | `audium_<version>-1+debian13_amd64.deb` |
+| Ubuntu 26.10 | `audium_<version>-1+ubuntu26.10_amd64.deb` |
+| Any distribution with Flatpak | `audium-<version>.flatpak` |
 
-**1. Download** the package and `SHA256SUMS` from the release, in your browser or with the GitHub CLI:
+Each package works only on the distribution it was built for, because it uses that distribution's Qt and KDE libraries. Ubuntu 24.04 and Debian 12 are too old (they don't have KDE Frameworks 6): use the Flatpak there. Each release also has the source code (`audium-<version>.tar.gz`), the Arch `PKGBUILD` and `SHA256SUMS`.
 
-```sh
-gh release download v1.1.0 --repo SpikeTheDragon40k/audium \
-  --pattern 'audium-1.1.0-1-x86_64.pkg.tar.zst' --pattern 'SHA256SUMS'
-```
-
-**2. Check** that the download is intact (optional, recommended). It should print `audium-1.1.0-1-x86_64.pkg.tar.zst: OK`:
+The commands below use the [GitHub CLI](https://cli.github.com/) to download the latest release; you can also download the files in your browser. Checking the download is optional, but recommended:
 
 ```sh
-sha256sum --check --ignore-missing SHA256SUMS
+gh release download --repo SpikeTheDragon40k/audium --pattern SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS   # prints "<file>: OK"
 ```
 
-**3. Install.** pacman also installs the libraries Audium needs (Qt 6, the KDE Frameworks, mpv) if they are missing:
+Your package manager also installs the libraries Audium needs (Qt 6, the KDE Frameworks, mpv). Afterwards Audium is in your application launcher (under Multimedia), or run `audium` from a terminal.
+
+### Arch Linux
+
+From the AUR, with an AUR helper (it builds Audium from source, and updates come with your system updates):
 
 ```sh
-sudo pacman -U audium-1.1.0-1-x86_64.pkg.tar.zst
+yay -S audium-audiobooks
 ```
 
-Audium is now in your application launcher (under Multimedia), or run `audium` from a terminal.
+The AUR name `audium` belongs to an unrelated terminal music player, which also installs an `audium` command; the two can't be installed together.
 
-**Updating:** download the newer package and install it the same way with `sudo pacman -U`. Your library, progress and settings are kept.
-
-**Uninstalling:** `sudo pacman -R audium`. Your data stays in `~/.local/share/audium` and `~/.cache/audium`; delete those folders too if you want it gone.
-
-### Building the package yourself
-
-If you prefer to build the package from the release's source:
+Or the ready-made package from the release (update by installing the next release's package the same way):
 
 ```sh
-mkdir audium-build && cd audium-build
-gh release download v1.1.0 --repo SpikeTheDragon40k/audium \
-  --pattern 'audium-1.1.0.tar.gz' --pattern 'PKGBUILD' --pattern 'SHA256SUMS'
-makepkg -si
+gh release download --repo SpikeTheDragon40k/audium --pattern '*-x86_64.pkg.tar.zst'
+sudo pacman -U audium-*-x86_64.pkg.tar.zst
 ```
 
-`makepkg` checks the source against the checksum in the PKGBUILD, installs the build tools it needs (Rust, CMake, …), builds Audium and installs the package. The build takes a few minutes.
+To build the release's package yourself instead: download `audium-<version>.tar.gz` and `PKGBUILD` into an empty folder and run `makepkg -si`.
+
+### Fedora
+
+```sh
+gh release download --repo SpikeTheDragon40k/audium --pattern '*.fc44.x86_64.rpm'
+sudo dnf install ./audium-*.fc44.x86_64.rpm
+```
+
+### openSUSE Tumbleweed
+
+```sh
+gh release download --repo SpikeTheDragon40k/audium --pattern '*.opensuse_tw.x86_64.rpm'
+sudo zypper install --allow-unsigned-rpm ./audium-*.opensuse_tw.x86_64.rpm
+```
+
+The packages aren't signed yet, hence `--allow-unsigned-rpm`; checking `SHA256SUMS` (above) confirms the file is the one released here.
+
+### Debian and Ubuntu
+
+```sh
+# Debian 13
+gh release download --repo SpikeTheDragon40k/audium --pattern '*+debian13_amd64.deb'
+# Ubuntu 26.10
+gh release download --repo SpikeTheDragon40k/audium --pattern '*+ubuntu26.10_amd64.deb'
+
+sudo apt install ./audium_*_amd64.deb
+```
 
 ### Flatpak (any distribution)
 
-Audium is not on Flathub yet. Until it is, you can build the Flatpak from the source and install it for your user. You need Flatpak with the [Flathub](https://flathub.org/setup) remote, and then:
+You need Flatpak with the [Flathub](https://flathub.org/setup) remote (it provides the KDE runtime the file uses). Audium itself is not on Flathub.
 
 ```sh
-# Once: flatpak-builder from your distribution (e.g. sudo pacman -S flatpak-builder,
-# sudo apt install flatpak-builder, sudo dnf install flatpak-builder),
-# then the KDE SDK and Rust (about 2 GB)
-flatpak install flathub org.kde.Sdk//6.11 org.freedesktop.Sdk.Extension.rust-stable//25.08
-
-# Build and install (the first build takes a while: it also builds mpv)
-git clone https://github.com/SpikeTheDragon40k/audium.git && cd audium
-flatpak-builder --user --install --force-clean build-flatpak \
-  packaging/flatpak/io.github.SpikeTheDragon40k.Audium.yml
+gh release download --repo SpikeTheDragon40k/audium --pattern '*.flatpak'
+flatpak install --user ./audium-*.flatpak
 ```
 
 Then start Audium from your application launcher, or with `flatpak run io.github.SpikeTheDragon40k.Audium`.
 
-The Flatpak can read all your files (read-only, so your library can be anywhere) and can't change them. It keeps its own library and settings in `~/.var/app/io.github.SpikeTheDragon40k.Audium/`, separate from an Arch-package install; use **Export…** and **Import…** to move your progress between them.
+The Flatpak can read all your files (read-only, so your library can be anywhere) and can't change them. It keeps its own library and settings in `~/.var/app/io.github.SpikeTheDragon40k.Audium/`, separate from a native install; use **Export…** and **Import…** to move your progress between them. To build the Flatpak from source instead, see [Building from source](#building-from-source).
+
+### Updating and uninstalling
+
+**Updating:** install the newer release's file the same way (the AUR updates by itself). Your library, progress and settings are kept.
+
+**Uninstalling:** `sudo pacman -R audium` (or `audium-audiobooks`), `sudo dnf remove audium`, `sudo zypper remove audium`, `sudo apt remove audium` or `flatpak uninstall io.github.SpikeTheDragon40k.Audium`. A native install keeps your data in `~/.local/share/audium` and `~/.cache/audium`; delete those folders too if you want it gone.
 
 ## Getting started
 
@@ -159,6 +177,16 @@ cmake --build build
 build/bin/audium
 ```
 
+The Flatpak, from the source:
+
+```sh
+# Once: flatpak-builder from your distribution, then the KDE SDK and Rust (about 2 GB)
+flatpak install flathub org.kde.Sdk//6.11 org.freedesktop.Sdk.Extension.rust-stable//25.08
+# Build and install (the first build takes a while: it also builds mpv)
+flatpak-builder --user --install --force-clean build-flatpak \
+  packaging/flatpak/io.github.SpikeTheDragon40k.Audium.yml
+```
+
 Development scripts:
 
 | Script | What it does |
@@ -166,7 +194,10 @@ Development scripts:
 | `scripts/check.sh` | Every check: formatting, clippy, Rust tests, the build, a staged install, the desktop metadata and the Qt tests |
 | `scripts/make-fixtures.sh` | Generates the synthetic test audio (no audio files are committed) |
 | `scripts/perf.sh` | Measures scanning, scrolling, search and memory on a generated 1000-book library |
-| `scripts/release.sh <version>` | Builds a release (checks, source tarball, Arch package, checksums) and publishes it on GitHub after asking |
+| `scripts/release.sh <version>` | Builds a release (checks, source tarball, every package below, checksums, the AUR files) and publishes it on GitHub after asking |
+| `scripts/build-packages.sh <version>` | Builds the Fedora, openSUSE, Debian and Ubuntu packages in containers of each distribution (Docker), then installs each one in a fresh container and starts it |
+| `scripts/build-flatpak-bundle.sh <version>` | Builds the release's `.flatpak` file from its git tag |
+| `scripts/make-screenshots.sh` | Takes the app-store screenshots from a generated demo library |
 
 The design is described in [ARCHITECTURE.md](ARCHITECTURE.md), and progress and plans in [ROADMAP.md](ROADMAP.md).
 

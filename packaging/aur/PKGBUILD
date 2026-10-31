@@ -1,0 +1,51 @@
+# Maintainer: Adriano Inghingolo <68734231+SpikeTheDragon40k@users.noreply.github.com>
+#
+# AUR package for Audium. The AUR name "audium" belongs to an unrelated
+# terminal music player, which also installs /usr/bin/audium: hence the
+# package name and the conflict.
+pkgname=audium-audiobooks
+_pkgname=audium
+pkgver=1.1.1
+pkgrel=1
+pkgdesc="Offline audiobook player for KDE Plasma"
+arch=('x86_64')
+url="https://github.com/SpikeTheDragon40k/audium"
+license=('GPL-3.0-only')
+depends=(
+    'gcc-libs' 'glibc'
+    'qt6-base' 'qt6-declarative' 'qt6-svg'
+    'kirigami' 'qqc2-desktop-style' 'ki18n' 'kcoreaddons' 'kconfig' 'kcolorscheme'
+    'knotifications' 'kstatusnotifieritem'
+    'mpv' 'hicolor-icon-theme'
+)
+makedepends=('cmake' 'ninja' 'extra-cmake-modules' 'corrosion' 'rust')
+conflicts=('audium')
+source=("$_pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/$_pkgname-$pkgver.tar.gz")
+# scripts/release.sh writes the release's checksum into its copy for the AUR
+# (dist/<version>/aur/PKGBUILD).
+sha256sums=('SKIP')
+# makepkg's LTO adds -flto to the C++ compiled inside the Rust bridge's build
+# script; the final link then can't find the bridge's symbols.
+options=('!lto')
+
+prepare() {
+    cd "$_pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+    cd "$_pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
+    export CARGO_NET_OFFLINE=true
+    cmake -B build -S . -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DBUILD_TESTING=OFF
+    cmake --build build
+}
+
+package() {
+    cd "$_pkgname-$pkgver"
+    DESTDIR="$pkgdir" cmake --install build
+}

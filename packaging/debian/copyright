@@ -1,0 +1,22 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: audium
+Source: https://github.com/SpikeTheDragon40k/audium
+
+Files: *
+Copyright: 2026 Adriano Inghingolo
+License: GPL-3.0-only
+
+Files: cmake/third_party/cxx-qt-cmake/*
+Copyright: 2024 Klarälvdalens Datakonsult AB, a KDAB Group company <info@kdab.com>
+License: MIT or Apache-2.0
+ See cmake/third_party/cxx-qt-cmake/LICENSES in the source. On Debian
+ systems, the Apache License 2.0 can be found in
+ "/usr/share/common-licenses/Apache-2.0".
+
+License: GPL-3.0-only
+ This program is free software: you can redistribute it and/or modify it
+ under the terms of the GNU General Public License as published by the Free
+ Software Foundation, version 3.
+ .
+ On Debian systems, the complete text of the GNU General Public License
+ version 3 can be found in "/usr/share/common-licenses/GPL-3".

@@ -3,7 +3,6 @@ import QtQuick.Controls as QQC2
 import QtQuick.Dialogs
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
-import org.audium.app
 import org.audium.bridge
 import "../components/TimeFormat.js" as TimeFormat
 

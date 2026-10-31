@@ -10,7 +10,7 @@ All builds run locally; GitHub hosts only the code and the Releases (see ARCHITE
 
 - **Done:** environment check and design docs; M0, M1 and M2 on Linux (2026-10-29); M3 on Linux (2026-10-30, reviewed); **M4 on Linux** (2026-10-30, reviewed); **M5 on Linux** (2026-10-30, reviewed); **M6 on Linux** (2026-10-30, reviewed); **M7, release on Linux** (2026-10-30, reviewed: the maintainer installed the package and it works).
 - **On hold:** Milestone 8 (Windows), at the maintainer's request.
-- **Next:** 1.1.0: tag, release and the Flathub submission (see "1.1.0 status (2026-10-31)" at the end). 1.0.0 is tagged.
+- **Next:** publish `audium-audiobooks` on the AUR; try each package once on a real desktop. Flathub is on hold (see the end of this file). Released: 1.0.0, 1.1.0, 1.1.1.
 - **Remote:** public GitHub repo `SpikeTheDragon40k/audium`, used for code and Releases only (no GitHub Actions).
 
 ## Resume here (updated 2026-10-30)
@@ -529,3 +529,30 @@ Next steps (the maintainer, in this order):
 4. Optionally check the tagged build like Flathub will: in `dist/flathub/`, `flatpak run --command=flathub-build org.flatpak.Builder --install io.github.SpikeTheDragon40k.Audium.yml`, then `flatpak run --command=flatpak-builder-lint org.flatpak.Builder repo repo`.
 5. Flathub submission: fork `flathub/flathub` (uncheck "copy the master branch only"), branch from `new-pr`, add the two files from `dist/flathub/` at the root, and open the PR against `new-pr`. Explain `--filesystem=host:ro`: audiobook libraries can be anywhere (other drives, `/mnt`, NAS mounts), the app only reads them and never writes; the portal file chooser alone wouldn't keep access to the library for rescans. A reviewer then comments; the build bot runs on `bot, build`.
 - Harmless log line: mpv without Lua has no `ytdl` option, so the backend's `ytdl=no` is reported as rejected.
+
+### Flathub: on hold (2026-10-31)
+Decided by the maintainer: wait. Flathub's requirements (docs.flathub.org/docs/for-app-authors/requirements, read 2026-10-31):
+- "Applications that have only existed for a very short period of time will generally not be accepted": the repository is from 2026-10-29.
+- "Flathub manifests must not contain AI-generated or AI-assisted content", even disclosed: the submitted manifest must be written by the maintainer.
+- AI tools must not open the pull request or write its commit messages, description or replies. The commit message and PR text drafted in the earlier guide (outside the repository) must not be used.
+- AI-generated code must be disclosed with the affected parts and approximate extent; reviewers may reject based on the extent.
+
+### 1.1.1: native packages and the Flatpak file (2026-10-31)
+Packages for Fedora 44, openSUSE Tumbleweed, Debian 13 and Ubuntu 26.10, a `.flatpak` file, and the AUR package `audium-audiobooks` (see ARCHITECTURE §13a "Distribution packages"). `scripts/release.sh` builds them all.
+
+Checked: each package built from the working tree, installed in a fresh container of its distribution with its package manager (dependencies from the distribution's repositories) and started offscreen without errors. The `.flatpak` file (from the `v1.1.0` tag) installed into a throwaway Flatpak installation and started.
+
+Bugs found and fixed (all in 1.1.0):
+- **The packages stopped starting after any Qt update** (since M0). QML compiled to C++ linked against Qt's private API, tied to the exact Qt version (`Qt_6.12.0_PRIVATE_API`). This also affects the 1.1.0 Arch package on GitHub: it stops starting when Arch updates Qt. Now bytecode only; `objdump -T` shows no private symbols.
+- **Audium didn't start on Qt 6.8** (Debian 13), though CMake allows 6.8: "org.audium.app is ambiguous", from QML files importing their own module. The imports are removed; `scripts/check.sh` passes on Qt 6.12 and the app runs on Qt 6.8.
+- **openSUSE package 19 MB** (binary not stripped). Now stripped in the spec.
+
+Known:
+- Debian 13 logs `TypeError: Cannot read property 'y' of null` from KDE's own `org/kde/desktop/TabButton.qml` (KDE Frameworks 6.13); a bug in that version, fixed in newer Frameworks. Harmless.
+- The packages aren't signed.
+
+Not verified:
+- **Any package on a real desktop** (window, audio, tray, media keys): only offscreen in containers. Before announcing a distribution as supported, try its package once in a VM with a desktop.
+- (The AUR PKGBUILD was checked: in a clean Arch container it downloads the 1.1.0 source, builds, installs as `audium-audiobooks` conflicting with `audium`, and starts.)
+
+Released as 1.1.1 (version in CMake, Cargo, both PKGBUILDs, the spec and AppStream). Next: the maintainer pushes `dist/1.1.1/aur/` to the AUR with their account.

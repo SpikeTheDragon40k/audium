@@ -1,0 +1,45 @@
+Source: audium
+Section: sound
+Priority: optional
+Maintainer: Adriano Inghingolo <68734231+SpikeTheDragon40k@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13),
+               cmake,
+               ninja-build,
+               pkgconf,
+               extra-cmake-modules,
+               qt6-base-dev,
+               qt6-declarative-dev,
+               libkirigami-dev,
+               libkf6i18n-dev,
+               libkf6coreaddons-dev,
+               libkf6colorscheme-dev,
+               libkf6config-dev,
+               libkf6notifications-dev,
+               libkf6statusnotifieritem-dev,
+               libmpv-dev
+Standards-Version: 4.7.0
+Homepage: https://github.com/SpikeTheDragon40k/audium
+Rules-Requires-Root: no
+
+Package: audium
+Architecture: amd64
+# QML modules and the desktop style are loaded at run time, so
+# ${shlibs:Depends} doesn't find them.
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+         qml6-module-org-kde-kirigami,
+         qml6-module-org-kde-desktop,
+         qml6-module-qtquick,
+         qml6-module-qtquick-controls,
+         qml6-module-qtquick-dialogs,
+         qml6-module-qtquick-layouts,
+         qml6-module-qtquick-templates,
+         qml6-module-qtquick-window,
+         qml6-module-qtqml-workerscript,
+         qt6-svg-plugins,
+         hicolor-icon-theme
+Description: Offline audiobook player for KDE Plasma
+ Audium is a desktop audiobook player for the books you already have on
+ disk. It works entirely offline: no accounts, no cloud, no online lookups,
+ no telemetry. It only reads your library and never changes, moves, renames
+ or deletes your audio files.

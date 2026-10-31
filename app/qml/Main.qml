@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls as QQC2
 import org.kde.kirigami as Kirigami
-import org.audium.app
 import org.audium.bridge
 
 Kirigami.ApplicationWindow {
