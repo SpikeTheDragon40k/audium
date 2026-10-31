@@ -29,7 +29,9 @@ grep -q "url: file://$root" "$work/$app_id.yml" || { echo "build-flatpak-bundle:
 cp dist/flathub/cargo-sources.json "$work/"
 
 cd "$work"
-flatpak-builder --force-clean --sandbox --disable-rofiles-fuse \
+# Not --sandbox (Flathub's build mode): it refuses a source outside the
+# manifest's folder, such as this repository.
+flatpak-builder --force-clean --disable-rofiles-fuse \
     --state-dir="$root/.flatpak-builder" --repo=repo builddir "$app_id.yml"
 flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
     repo "$dist/audium-$version.flatpak" "$app_id"
