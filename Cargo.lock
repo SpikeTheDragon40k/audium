@@ -28,11 +28,11 @@ checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
 name = "audium-core"
-version = "1.0.0"
+version = "1.1.0"
 
 [[package]]
 name = "audium-library"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "audium-core",
  "audium-metadata",
@@ -47,7 +47,7 @@ dependencies = [
 
 [[package]]
 name = "audium-metadata"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "audium-core",
  "id3",
@@ -61,7 +61,7 @@ dependencies = [
 
 [[package]]
 name = "audium-storage"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "audium-core",
  "rusqlite",
@@ -74,7 +74,7 @@ dependencies = [
 
 [[package]]
 name = "audium_bridge"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "audium-core",
  "audium-library",

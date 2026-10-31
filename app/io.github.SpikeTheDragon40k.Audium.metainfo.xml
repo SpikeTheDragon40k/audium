@@ -25,6 +25,28 @@
       <li>Media keys, the Plasma media controls and a tray icon</li>
     </ul>
   </description>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Continue listening where you left off</caption>
+      <image type="source" width="1280" height="800">https://raw.githubusercontent.com/SpikeTheDragon40k/audium/v1.1.0/packaging/screenshots/1-home.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Your library with a book's details, chapters and progress</caption>
+      <image type="source" width="1280" height="800">https://raw.githubusercontent.com/SpikeTheDragon40k/audium/v1.1.0/packaging/screenshots/2-book.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Now Playing with chapters, speed and the sleep timer</caption>
+      <image type="source" width="1280" height="800">https://raw.githubusercontent.com/SpikeTheDragon40k/audium/v1.1.0/packaging/screenshots/3-now-playing.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The bookshelf view, grouped by author</caption>
+      <image type="source" width="1280" height="800">https://raw.githubusercontent.com/SpikeTheDragon40k/audium/v1.1.0/packaging/screenshots/4-bookshelf.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Listening statistics</caption>
+      <image type="source" width="1280" height="800">https://raw.githubusercontent.com/SpikeTheDragon40k/audium/v1.1.0/packaging/screenshots/5-statistics.png</image>
+    </screenshot>
+  </screenshots>
   <url type="homepage">https://github.com/SpikeTheDragon40k/audium</url>
   <url type="bugtracker">https://github.com/SpikeTheDragon40k/audium/issues</url>
   <launchable type="desktop-id">io.github.SpikeTheDragon40k.Audium.desktop</launchable>
@@ -53,6 +75,16 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="1.1.0" date="2026-10-31">
+      <description>
+        <p>Available as a Flatpak.</p>
+        <ul>
+          <li>Fixed: right after a book ended, the next book could start from the beginning instead of where you left off</li>
+          <li>Progress bars under covers now show with every widget style, not only Breeze</li>
+          <li>The scroll bar of the Home rows no longer covers book titles and authors</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-10-30">
       <description>
         <p>First release.</p>

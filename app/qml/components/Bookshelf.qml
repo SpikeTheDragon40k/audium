@@ -113,10 +113,8 @@ ListView {
                         source: standing.coverUrl
                         available: standing.available
                     }
-                    QQC2.ProgressBar {
+                    ProgressLine {
                         Layout.fillWidth: true
-                        from: 0
-                        to: 1
                         value: standing.finished ? 1 : standing.progress
                         opacity: standing.progress > 0 || standing.finished ? 1 : 0.25
                     }

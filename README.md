@@ -7,7 +7,7 @@
 - **Safe for your library:** it only reads your audio files. It never changes, moves, renames or deletes them; everything it learns, and everything you edit, is kept in its own database.
 - **Made for real libraries:** single m4b files, folders of parts, CD subfolders and loose files in author folders, with or without good tags. Tested with 1000 books.
 
-Version 1.0.0 is packaged for Arch Linux and Arch-based distributions (Manjaro, EndeavourOS, CachyOS…). On other distributions you can build the Flatpak yourself; publishing it on Flathub is planned for 1.1.0. Windows support is on hold.
+Version 1.1.0 is packaged for Arch Linux and Arch-based distributions (Manjaro, EndeavourOS, CachyOS…). On other distributions you can build the Flatpak yourself until it is on Flathub (submission in progress). Windows support is on hold.
 
 ## Contents
 
@@ -37,11 +37,11 @@ Each release on the [Releases page](https://github.com/SpikeTheDragon40k/audium/
 **1. Download** the package and `SHA256SUMS` from the release, in your browser or with the GitHub CLI:
 
 ```sh
-gh release download v1.0.0 --repo SpikeTheDragon40k/audium \
-  --pattern 'audium-1.0.0-1-x86_64.pkg.tar.zst' --pattern 'SHA256SUMS'
+gh release download v1.1.0 --repo SpikeTheDragon40k/audium \
+  --pattern 'audium-1.1.0-1-x86_64.pkg.tar.zst' --pattern 'SHA256SUMS'
 ```
 
-**2. Check** that the download is intact (optional, recommended). It should print `audium-1.0.0-1-x86_64.pkg.tar.zst: OK`:
+**2. Check** that the download is intact (optional, recommended). It should print `audium-1.1.0-1-x86_64.pkg.tar.zst: OK`:
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS
@@ -50,7 +50,7 @@ sha256sum --check --ignore-missing SHA256SUMS
 **3. Install.** pacman also installs the libraries Audium needs (Qt 6, the KDE Frameworks, mpv) if they are missing:
 
 ```sh
-sudo pacman -U audium-1.0.0-1-x86_64.pkg.tar.zst
+sudo pacman -U audium-1.1.0-1-x86_64.pkg.tar.zst
 ```
 
 Audium is now in your application launcher (under Multimedia), or run `audium` from a terminal.
@@ -65,8 +65,8 @@ If you prefer to build the package from the release's source:
 
 ```sh
 mkdir audium-build && cd audium-build
-gh release download v1.0.0 --repo SpikeTheDragon40k/audium \
-  --pattern 'audium-1.0.0.tar.gz' --pattern 'PKGBUILD' --pattern 'SHA256SUMS'
+gh release download v1.1.0 --repo SpikeTheDragon40k/audium \
+  --pattern 'audium-1.1.0.tar.gz' --pattern 'PKGBUILD' --pattern 'SHA256SUMS'
 makepkg -si
 ```
 

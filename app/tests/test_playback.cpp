@@ -283,6 +283,26 @@ private Q_SLOTS:
         QTRY_VERIFY(player->position() < 1500);
     }
 
+    void loadAfterEndOfBookKeepsStartPosition()
+    {
+        // Right after a book ends, mpv may still report the old file's
+        // eof-reached; playing the next book must not take that for "replay
+        // from the beginning". Repeated, because it depends on timing.
+        for (int i = 0; i < 8; ++i) {
+            QSignalSpy ended(player.get(), &PlaybackController::endOfBook);
+            loadAndWait({track(M4b)}, 0, 5600);
+            player->play();
+            QTRY_COMPARE_WITH_TIMEOUT(ended.count(), 1, 3000);
+
+            player->load({track(M4b)}, {}, 0, 3000);
+            player->play();
+            QTRY_COMPARE_WITH_TIMEOUT(player->state(), State::Playing, LoadTimeoutMs);
+            QTest::qWait(300);
+            QVERIFY2(player->position() >= 3000 - ToleranceMs, qPrintable(QStringLiteral("run %1: position %2").arg(i).arg(player->position())));
+            player->stop();
+        }
+    }
+
     void corruptFileIsAnError()
     {
         QSignalSpy failed(player.get(), &PlaybackController::trackFailed);

@@ -264,8 +264,10 @@ void MpvPlaybackBackend::handlePropertyChange(const mpv_event &event)
         break;
     case PropEofReached:
         // With keep-open=yes this only happens at the end of the last track.
-        if (hasData && *static_cast<int *>(prop->data) != 0 && m_playlistPos == trackCount() - 1) {
+        // Not while a new playlist loads: then it describes the old file.
+        if (hasData && *static_cast<int *>(prop->data) != 0 && m_fileLoaded && m_playlistPos == trackCount() - 1) {
             m_wantPlaying = false;
+            m_atEndOfBook = true;
             reportTrackPosition(m_playlistPos, std::max<qint64>(0, duration() - trackStart(m_playlistPos)));
             reportEndOfBook();
         }
@@ -403,6 +405,7 @@ void MpvPlaybackBackend::backendLoad(const QList<TrackSource> &tracks, int start
     }
 
     m_wantPlaying = false;
+    m_atEndOfBook = false;
     m_anyTrackLoaded = false;
     m_fileLoaded = false;
     m_entryIndex.clear();
@@ -432,8 +435,7 @@ void MpvPlaybackBackend::backendPlay()
 {
     m_wantPlaying = true;
     // Replaying a finished book starts from the beginning.
-    int eof = 0;
-    if (mpv_get_property(m_mpv, "eof-reached", MPV_FORMAT_FLAG, &eof) >= 0 && eof && m_playlistPos == trackCount() - 1) {
+    if (m_atEndOfBook) {
         seekTrack(0, 0);
     }
     setFlag("pause", false);
@@ -448,6 +450,7 @@ void MpvPlaybackBackend::backendPause()
 void MpvPlaybackBackend::backendStop()
 {
     m_wantPlaying = false;
+    m_atEndOfBook = false;
     m_pendingSeekTrack = -1;
     m_awaitTrack = -1;
     m_seekHoldMs = -1;
@@ -465,6 +468,7 @@ void MpvPlaybackBackend::backendSeek(int trackIndex, qint64 offsetMs)
     if (!m_mpv) {
         return;
     }
+    m_atEndOfBook = false;
     if (trackIndex == m_playlistPos && m_fileLoaded) {
         seekInCurrentFile(offsetMs);
         return;

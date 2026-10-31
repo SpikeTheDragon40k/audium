@@ -10,8 +10,8 @@ All builds run locally; GitHub hosts only the code and the Releases (see ARCHITE
 
 - **Done:** environment check and design docs; M0, M1 and M2 on Linux (2026-10-29); M3 on Linux (2026-10-30, reviewed); **M4 on Linux** (2026-10-30, reviewed); **M5 on Linux** (2026-10-30, reviewed); **M6 on Linux** (2026-10-30, reviewed); **M7, release on Linux** (2026-10-30, reviewed: the maintainer installed the package and it works).
 - **On hold:** Milestone 8 (Windows), at the maintainer's request.
-- **Next:** release 1.0.0 (Arch package). Then 1.1.0: Flatpak and the Flathub submission.
-- **Remote:** private GitHub repo `SpikeTheDragon40k/audium`, used for code and Releases only (no GitHub Actions).
+- **Next:** 1.1.0: tag, release and the Flathub submission (see "1.1.0 status (2026-10-31)" at the end). 1.0.0 is tagged.
+- **Remote:** public GitHub repo `SpikeTheDragon40k/audium`, used for code and Releases only (no GitHub Actions).
 
 ## Resume here (updated 2026-10-30)
 
@@ -497,5 +497,35 @@ Decided by the maintainer: the Flathub submission comes in 1.1.0, not 1.0.0.
 - **Permissions:** Wayland (X11 fallback), GPU, PulseAudio, IPC; the host's files read-only; the MPRIS name; the tray (`org.kde.StatusNotifierWatcher`, `org.kde.StatusNotifierItem-2-1`). Notifications go through the portal (no permission needed).
 - **Checked:** `flatpak-builder --user --install` builds and installs it; inside the sandbox the app starts, creates its database in `~/.var/app/…`, and registers MPRIS. The Flatpak's libmpv decodes the AAC m4b and MP3 test files (AAC comes from the runtime's `codecs-extra` extension, installed with the runtime).
 - **Tested by the maintainer** on their desktop (2026-10-30): "the flatpak works perfectly".
-- **Not done yet:** `flatpak-builder-lint`, screenshots, the manifest's source as a git tag, the Flathub submission.
+- **Not done yet (then):** screenshots, the manifest's source as a git tag, the Flathub submission. See below.
+
+### 1.1.0 status (2026-10-31): committed and tagged `v1.1.0`
+`scripts/check.sh` passes (all 7 ctest suites). Version set to 1.1.0 (CMake, Cargo, PKGBUILD, an AppStream `<release>` entry dated 2026-10-31).
+
+**Screenshot tooling** (new, see ARCHITECTURE §13a): `scripts/make-demo-library.sh`, `app/tests/make_screenshots.cpp`, `scripts/make-screenshots.sh` → `packaging/screenshots/1-home … 5-statistics.png` (1280×800, Breeze Light). Regenerated and looked at: progress bars, two finished books, apostrophes on covers, shelves by author, a 7-day streak. The AppStream file lists them, with captions, at `https://raw.githubusercontent.com/SpikeTheDragon40k/audium/v1.1.0/packaging/screenshots/<name>.png`.
+
+The "To fix next" list from the previous session:
+1. **"Progress table empty":** not a bug in the saving. Progress *is* saved (checked in the database: 6 rows, right positions). The empty results came from a query with wrong column names and from runs where playback failed. The harness now also makes the library path absolute (a relative one put mpv in Error).
+2. **`finish()`** now waits for Playing, then for the end. The harness fails unless the database then has 2 finished books and 4 under way. This showed a **real bug, fixed** (below).
+3. **Apostrophes on covers:** the text goes to `drawtext` through files (`textfile=`, `expansion=none`).
+4. **Bookshelf screenshot** grouped by author (`shelfGrouping` has an `objectName`).
+5. **`<screenshots>`** added. `flatpak-builder-lint appstream` only warns that the URLs aren't found, which is expected until the `v1.1.0` tag is pushed.
+6. **Manifest source:** the in-repo manifest stays `type: dir` for local builds. `scripts/flathub-manifest.py v1.1.0` writes the Flathub copy (git url + tag + commit) and `cargo-sources.json` to `dist/flathub/`. Tried with `v1.0.0`: `flatpak-builder-lint manifest` passes.
+
+Bugs found and fixed:
+- **After a book ended, the next book could start at 0:00 instead of its saved position** (since M1). `backendPlay()` asked mpv's `eof-reached` whether to "replay from the beginning". Right after loading another single-file book, that property still described the previous file. In real use: finish an m4b, press Resume on another m4b, and it may start over; the next save then overwrites the saved position. The harness hit it 2 times in 8. Now the backend keeps its own flag. New test `test_playback::loadAfterEndOfBookKeepsStartPosition` (8 rounds): failed every time before the fix, passes 5 runs in a row after it; the harness passed 8 of 8.
+- **Progress bars under covers didn't show** with a widget style other than Breeze. The desktop style's `ProgressBar` gets its height from the widget style: 0 px under Fusion (what Qt uses offscreen, and on desktops without the KDE platform theme, e.g. a Flatpak on GNOME) and 22 px under Breeze, more than a tile allowed. Replaced with `ProgressLine` (theme colours, a fixed thin height) in tiles and on the bookshelf.
+- **The scroll bar of a Home row covered the titles and authors under the covers**, and Home's vertical scroll bar covered the rows' right edge. Both views now leave room for their scroll bars.
+- **`test_layout` missed these:** it now runs with the Breeze widget style, also looks at Home scrolled to the end, and fails on text cut off at the top or bottom of a view that doesn't scroll vertically and on text under a shown scroll bar. With the old Home row it fails, as it should.
+
+Not verified:
+- **The new progress line and Home rows on the real desktop.** Only seen in offscreen screenshots.
+- **The Flatpak of this tree, run by a person:** it builds (`flatpak-builder --force-clean build-flatpak …`, not installed). `flatpak-builder-lint builddir` has one error, `appstream-missing-screenshots`: the catalogue drops screenshots whose URLs it can't reach, and they only exist once the `v1.1.0` tag is pushed. Re-run the linter after pushing the tag (step 4 below).
+
+Next steps (the maintainer, in this order):
+1. ~~Commit, push.~~ Done (2026-10-31). Still to do by hand: look at the screenshots and try the progress line and Home rows on the desktop.
+2. ~~Tag `v1.1.0`, push the tag (the screenshot URLs then resolve), `scripts/release.sh 1.1.0`.~~ The tag is this commit.
+3. `scripts/flathub-manifest.py v1.1.0` → `dist/flathub/`.
+4. Optionally check the tagged build like Flathub will: in `dist/flathub/`, `flatpak run --command=flathub-build org.flatpak.Builder --install io.github.SpikeTheDragon40k.Audium.yml`, then `flatpak run --command=flatpak-builder-lint org.flatpak.Builder repo repo`.
+5. Flathub submission: fork `flathub/flathub` (uncheck "copy the master branch only"), branch from `new-pr`, add the two files from `dist/flathub/` at the root, and open the PR against `new-pr`. Explain `--filesystem=host:ro`: audiobook libraries can be anywhere (other drives, `/mnt`, NAS mounts), the app only reads them and never writes; the portal file chooser alone wouldn't keep access to the library for rescans. A reviewer then comments; the build bot runs on `bot, build`.
 - Harmless log line: mpv without Lua has no `ytdl` option, so the backend's `ytdl=no` is reported as rejected.

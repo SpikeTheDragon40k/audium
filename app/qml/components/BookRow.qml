@@ -30,8 +30,10 @@ ColumnLayout {
     }
     ListView {
         id: list
+        readonly property real tileHeight: row.tileWidth + metrics.bookText
         Layout.fillWidth: true
-        Layout.preferredHeight: tileWidth + metrics.bookText
+        // Room for the scroll bar, which is drawn over the view's bottom.
+        Layout.preferredHeight: tileHeight + scrollBar.height
         orientation: ListView.Horizontal
         model: row.model
         clip: true
@@ -39,10 +41,12 @@ ColumnLayout {
         leftMargin: Kirigami.Units.smallSpacing
         rightMargin: Kirigami.Units.smallSpacing
         reuseItems: true
-        QQC2.ScrollBar.horizontal: QQC2.ScrollBar {}
+        QQC2.ScrollBar.horizontal: QQC2.ScrollBar {
+            id: scrollBar
+        }
         delegate: BookTile {
             width: row.tileWidth
-            height: ListView.view.height
+            height: list.tileHeight
             onBookRequested: id => row.bookRequested(id)
         }
     }

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(audium VERSION 1.0.0 LANGUAGES CXX)
+project(audium VERSION 1.1.0 LANGUAGES CXX)
 
 set(QT_MIN_VERSION "6.8.0")
 set(KF_MIN_VERSION "6.10.0")

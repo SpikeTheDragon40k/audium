@@ -2,6 +2,7 @@
 // sees must fit the window. With AUDIUM_SCREENSHOT_DIR set, each page is
 // also saved as <size>-<page>.png for looking at.
 
+#include <QApplication>
 #include <QIcon>
 #include <QQmlApplicationEngine>
 #include <QQuickItem>
@@ -56,6 +57,29 @@ bool scrollsSideways(const QQuickItem *item)
     return true;
 }
 
+// A view that scrolls up and down: what it cuts off at its top and bottom
+// can be scrolled to.
+bool scrollsVertically(const QQuickItem *item)
+{
+    return isA(item, "QQuickFlickable") && item->property("contentHeight").toReal() > item->height() + 1;
+}
+
+// Scroll bars that are shown (there is something to scroll), anywhere in
+// `item`. They are drawn over their view's content.
+QList<QRectF> visibleScrollBars(QQuickItem *item)
+{
+    QList<QQuickItem *> items;
+    collectItems(item, items);
+    QList<QRectF> bars;
+    for (QQuickItem *bar : std::as_const(items)) {
+        if (isA(bar, "QQuickScrollBar") && bar->isVisible() && bar->opacity() > 0.01 && bar->property("size").toReal() < 1
+            && bar->width() >= 1 && bar->height() >= 1) {
+            bars << bar->mapRectToScene(bar->boundingRect());
+        }
+    }
+    return bars;
+}
+
 QString describe(QQuickItem *item)
 {
     return QStringLiteral("%1 \"%2\" at %3,%4 %5x%6")
@@ -67,6 +91,8 @@ QString describe(QQuickItem *item)
 // Text a person can't fully read, within `page` (which must be on screen):
 // - text, a button or a tab cut off at the side of the window or of a
 //   clipping view (unless that view scrolls sideways), or a tab not shown;
+// - text cut off at the top or bottom of a clipping view that doesn't
+//   scroll up and down (a row of covers), or under a scroll bar;
 // - text sticking out of its button, tile or row.
 // Buttons and tabs count as text: the desktop style draws their labels
 // itself, with no text item.
@@ -75,6 +101,7 @@ QStringList unreadableText(QQuickWindow *window, QQuickItem *page)
     QStringList problems;
     QList<QQuickItem *> items;
     collectItems(page, items);
+    const QList<QRectF> scrollBars = visibleScrollBars(page);
     const QRectF windowRect(QPointF(0, 0), window->size());
     for (QQuickItem *item : std::as_const(items)) {
         const bool isText = isA(item, "QQuickText");
@@ -85,12 +112,14 @@ QStringList unreadableText(QQuickWindow *window, QQuickItem *page)
         const QRectF rect = item->mapRectToScene(item->boundingRect());
         QRectF visible = rect & windowRect;
         bool sideways = false;
+        bool vertical = false;
         bool transparent = false;
         bool inTabBar = false;
         QQuickItem *control = nullptr;
         for (QQuickItem *a = item->parentItem(); a && a != page->parentItem(); a = a->parentItem()) {
             transparent = transparent || a->opacity() < 0.01;
             sideways = sideways || scrollsSideways(a);
+            vertical = vertical || scrollsVertically(a);
             inTabBar = inTabBar || isA(a, "QQuickTabBar");
             if (a->clip()) {
                 visible &= a->mapRectToScene(a->boundingRect());
@@ -111,6 +140,15 @@ QStringList unreadableText(QQuickWindow *window, QQuickItem *page)
         }
         if (!sideways && visible.width() >= 1 && visible.width() < rect.width() - 1) {
             problems << QStringLiteral("cut off: ") + describe(item);
+        }
+        if (!vertical && visible.width() >= 1 && visible.height() < rect.height() - 1) {
+            problems << QStringLiteral("cut off at the top or bottom: ") + describe(item);
+        }
+        for (const QRectF &bar : scrollBars) {
+            if (bar.intersects(visible)) {
+                problems << QStringLiteral("under a scroll bar: ") + describe(item);
+                break;
+            }
         }
         if (control) {
             const QRectF box = control->mapRectToScene(control->boundingRect()).adjusted(-1, -1, 1, 1);
@@ -198,6 +236,9 @@ private Q_SLOTS:
         // theme of its own.
         QQuickStyle::setStyle(QStringLiteral("org.kde.desktop"));
         QIcon::setThemeName(QStringLiteral("breeze"));
+        // The desktop style draws controls with the widget style, which is
+        // Breeze on Plasma; offscreen it would be Fusion, sized differently.
+        QVERIFY2(QApplication::setStyle(QStringLiteral("Breeze")), "Breeze widget style not installed");
         QVERIFY(m_tmp.isValid());
         m_player = std::make_unique<MpvPlaybackBackend>(QMap<QByteArray, QByteArray>{{"ao", "null"}});
         m_library = std::make_unique<LibraryController>();
@@ -299,6 +340,13 @@ private Q_SLOTS:
             QVERIFY(m_libraryPage->setProperty("tab", tab));
             look(tabs[tab]);
         }
+        // Home again, scrolled to its last row.
+        QVERIFY(m_libraryPage->setProperty("tab", 0));
+        auto *home = m_window->findChild<QQuickItem *>(QStringLiteral("homeView"));
+        QVERIFY(home);
+        QVERIFY(home->setProperty("contentY", std::max<qreal>(0, home->property("contentHeight").toReal() - home->height())));
+        look(QStringLiteral("home-end"));
+        QVERIFY(home->setProperty("contentY", 0));
         QVERIFY(m_libraryPage->setProperty("tab", 1));
         QVERIFY(m_libraryPage->setProperty("booksView", 1));
         look(QStringLiteral("books-list"));

@@ -28,6 +28,11 @@ set_tests_properties(test_bridge test_layout test_playback test_session PROPERTI
 add_executable(test_perf test_perf.cpp)
 target_link_libraries(test_perf PRIVATE Qt::Test audium_ui audium_uiplugin)
 
+# Screenshots for the app stores, from a generated demo library. Run by
+# scripts/make-screenshots.sh, not by ctest.
+add_executable(make_screenshots make_screenshots.cpp)
+target_link_libraries(make_screenshots PRIVATE Qt::Test audium_ui audium_uiplugin)
+
 # Desktop integrations, on a private D-Bus session bus (never the user's).
 if(UNIX AND NOT APPLE)
     find_program(DBUS_RUN_SESSION dbus-run-session REQUIRED)

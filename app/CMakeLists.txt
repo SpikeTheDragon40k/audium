@@ -41,6 +41,7 @@ qt_add_qml_module(audium_ui
         qml/components/MiniPlayer.qml
         qml/components/BookCover.qml
         qml/components/BookTile.qml
+        qml/components/ProgressLine.qml
         qml/components/BookRow.qml
         qml/components/BookGrid.qml
         qml/components/BookList.qml

@@ -212,10 +212,13 @@ Kirigami.Page {
             contentWidth: width
             contentHeight: rows.implicitHeight + Kirigami.Units.largeSpacing
             boundsBehavior: Flickable.StopAtBounds
-            QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
+            QQC2.ScrollBar.vertical: QQC2.ScrollBar {
+                id: homeScrollBar
+            }
             ColumnLayout {
                 id: rows
-                width: parent.width
+                // Room for the scroll bar, which is drawn over the view.
+                width: parent.width - homeScrollBar.width
                 spacing: Kirigami.Units.largeSpacing
                 BookRow {
                     Layout.fillWidth: true
@@ -345,6 +348,7 @@ Kirigami.Page {
     // The bookshelf grouping survives switching tabs.
     QtObject {
         id: shelfGrouping
+        objectName: "shelfGrouping"
         property int value: 0
     }
 

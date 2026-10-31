@@ -1,7 +1,7 @@
 # Arch Linux package for Audium, built locally from a release tarball made
 # by scripts/release.sh (which also fills in the checksum).
 pkgname=audium
-pkgver=1.0.0
+pkgver=1.1.0
 pkgrel=1
 pkgdesc="Offline audiobook player for KDE Plasma"
 arch=('x86_64')

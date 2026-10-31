@@ -57,6 +57,10 @@ private:
     bool m_paused = true;
     bool m_wantPlaying = false;
     bool m_anyTrackLoaded = false;
+    // The end of the book was reached and nothing was loaded or sought since.
+    // Our own flag: mpv's eof-reached can still describe the previous file
+    // right after a load.
+    bool m_atEndOfBook = false;
     int m_pendingSeekTrack = -1;
     // After a load: the track that must load first. mpv may briefly start
     // another entry of the new playlist; those loads are ignored.

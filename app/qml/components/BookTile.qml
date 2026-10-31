@@ -41,10 +41,8 @@ QQC2.ItemDelegate {
                 QQC2.ToolTip.text: i18nc("@info:tooltip", "Finished")
             }
         }
-        QQC2.ProgressBar {
+        ProgressLine {
             Layout.fillWidth: true
-            from: 0
-            to: 1
             value: tile.progress
             // Keeps the layout stable for books not started yet.
             opacity: tile.progress > 0 && !tile.finished ? 1 : 0
