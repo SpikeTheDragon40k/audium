@@ -12,7 +12,7 @@ pub mod sidecar;
 pub use cover::{Cover, read_embedded_cover};
 pub use probe::{FileInfo, FileTags, RawChapter, probe};
 pub use resolve::{BookInputs, Field, Overrides, ResolvedMetadata, Source, resolve};
-pub use sidecar::{Sidecars, read_sidecars};
+pub use sidecar::{Sidecars, read_sidecars, sidecar_stamp};
 
 /// Limits for untrusted text.
 pub mod limits {

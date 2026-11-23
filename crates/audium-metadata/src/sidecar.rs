@@ -30,6 +30,34 @@ const COVER_STEMS: [&str; 2] = ["cover", "folder"];
 const IMAGE_EXTENSIONS: [&str; 4] = ["jpg", "jpeg", "png", "webp"];
 
 /// Reads the sidecars in `dir`. Unreadable or malformed files are skipped.
+/// A cheap fingerprint of the sidecar files in `dir` (names, sizes and
+/// modification times; no contents), to notice when one is added, edited or
+/// removed. Empty when there are none.
+pub fn sidecar_stamp(dir: &Path) -> String {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return String::new();
+    };
+    let mut parts: Vec<String> = entries
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_str()?.to_lowercase();
+            let relevant = matches!(name.as_str(), "metadata.json" | "desc.txt" | "reader.txt")
+                || name.split_once('.').is_some_and(|(stem, ext)| {
+                    COVER_STEMS.contains(&stem) && IMAGE_EXTENSIONS.contains(&ext)
+                });
+            let meta = e.metadata().ok().filter(|m| m.is_file() && relevant)?;
+            let mtime = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_millis());
+            Some(format!("{name}:{}:{mtime}", meta.len()))
+        })
+        .collect();
+    parts.sort();
+    parts.join("|")
+}
+
 pub fn read_sidecars(dir: &Path) -> Sidecars {
     let mut out = Sidecars::default();
     let Ok(entries) = fs::read_dir(dir) else {

@@ -23,9 +23,14 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "search",
         sql: include_str!("../../../migrations/0002_search.sql"),
     },
+    Migration {
+        version: 3,
+        name: "sidecar stamp",
+        sql: include_str!("../../../migrations/0003_sidecar_stamp.sql"),
+    },
 ];
 
-pub const LATEST_VERSION: i64 = 2;
+pub const LATEST_VERSION: i64 = 3;
 
 pub(crate) fn run(conn: &mut Connection, path: &Path, migrations: &[Migration]) -> Result<()> {
     let latest = migrations.last().map_or(0, |m| m.version);

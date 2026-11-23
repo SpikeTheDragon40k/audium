@@ -97,6 +97,8 @@ pub struct ExistingBook {
     pub has_user_data: bool,
     /// Raw `overrides` rows: field -> value.
     pub overrides: HashMap<String, String>,
+    /// `sidecar_stamp` of the folder when the book was last read.
+    pub sidecar_stamp: Option<String>,
 }
 
 /// Everything the scanner needs to plan a reconciliation.
@@ -127,7 +129,7 @@ pub fn snapshot(conn: &Connection) -> Result<Snapshot> {
     snap.tracks = rows.collect::<rusqlite::Result<_>>()?;
 
     let mut stmt = conn.prepare(&format!(
-        "SELECT id, uid, grouping_locked, {HAS_USER_DATA} FROM books"
+        "SELECT id, uid, grouping_locked, {HAS_USER_DATA}, sidecar_stamp FROM books"
     ))?;
     let rows = stmt.query_map([], |r| {
         Ok((
@@ -135,10 +137,11 @@ pub fn snapshot(conn: &Connection) -> Result<Snapshot> {
             r.get::<_, String>(1)?,
             r.get::<_, bool>(2)?,
             r.get::<_, bool>(3)?,
+            r.get::<_, Option<String>>(4)?,
         ))
     })?;
     for row in rows {
-        let (id, uid, locked, has_user_data) = row?;
+        let (id, uid, locked, has_user_data, sidecar_stamp) = row?;
         let uid = BookUid::parse(&uid)
             .ok_or_else(|| StorageError::Invalid(format!("book {id} has uid {uid:?}")))?;
         snap.books.insert(
@@ -148,6 +151,7 @@ pub fn snapshot(conn: &Connection) -> Result<Snapshot> {
                 grouping_locked: locked,
                 has_user_data,
                 overrides: HashMap::new(),
+                sidecar_stamp,
             },
         );
     }
@@ -224,6 +228,8 @@ pub struct BookWrite {
     pub review_reasons: Vec<String>,
     pub tracks: Vec<TrackWrite>,
     pub chapters: Vec<ChapterWrite>,
+    /// The folder's sidecar stamp when its sidecars were read for this book.
+    pub sidecar_stamp: Option<String>,
 }
 
 /// The result of scanning one library root.
@@ -350,7 +356,8 @@ fn write_book(
     tx.execute(
         "UPDATE books SET library_id = ?2, title = ?3, title_sort = ?4, subtitle = ?5, description = ?6,
             year = ?7, genre = ?8, publisher = ?9, language = ?10, series_id = ?11, series_index = ?12,
-            duration_ms = ?13, cover_path = ?14, confidence = ?15, provenance = ?16, updated_at = ?17
+            duration_ms = ?13, cover_path = ?14, confidence = ?15, provenance = ?16, updated_at = ?17,
+            sidecar_stamp = ?18
          WHERE id = ?1",
         params![
             book_id,
@@ -369,7 +376,8 @@ fn write_book(
             book.cover_path,
             book.confidence,
             provenance,
-            now
+            now,
+            book.sidecar_stamp
         ],
     )?;
 

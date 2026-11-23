@@ -24,6 +24,7 @@ use audium_metadata::cover::read_cover_file;
 use audium_metadata::heuristics::{PathGuess, guess_from_filename, guess_from_folders};
 use audium_metadata::{
     BookInputs, Cover, FileInfo, Overrides, Sidecars, read_embedded_cover, read_sidecars, resolve,
+    sidecar_stamp,
 };
 use audium_storage::write::{
     self, ApplyReport, BookMetadata, BookTarget, BookWrite, ChapterWrite, ExistingTrack, Library,
@@ -144,7 +145,10 @@ pub fn scan_library(
                         .iter()
                         .any(|f| f.path.parent() == Some(d.as_path()))
             });
-        match unchanged_tracks(&group, &by_path, &tracks_of_book).filter(|_| !forced) {
+        match unchanged_tracks(&group, &by_path, &tracks_of_book)
+            .filter(|_| !forced)
+            .filter(|ids| sidecars_unchanged(&group, ids, &by_path, &snapshot))
+        {
             Some(ids) => {
                 summary.folders_unchanged += 1;
                 changes.present_tracks.extend(ids);
@@ -242,20 +246,17 @@ pub fn scan_library(
         let unreadable = infos.iter().any(Option::is_none);
         let candidates = group_folder(&free, &infos);
         // Sidecars describe a folder's only book.
-        let sidecars = if candidates.len() == 1 && !has_locked {
-            read_sidecars(&group.dir)
+        let (sidecars, stamp) = if candidates.len() == 1 && !has_locked {
+            (read_sidecars(&group.dir), Some(sidecar_stamp(&group.dir)))
         } else {
-            Sidecars::default()
+            (Sidecars::default(), None)
         };
         for candidate in &candidates {
-            changes.books.push(ctx.emit(
-                &free,
-                candidate,
-                &free_reads,
-                &sidecars,
-                unreadable,
-                None,
-            ));
+            let book = ctx.emit(&free, candidate, &free_reads, &sidecars, unreadable, None);
+            changes.books.push(BookWrite {
+                sidecar_stamp: stamp.clone(),
+                ..book
+            });
         }
     }
 
@@ -448,6 +449,32 @@ fn unchanged_tracks(
             .is_some_and(|ts| ts.iter().all(|t| paths.contains(t.path.as_path())))
     });
     complete.then_some(ids)
+}
+
+/// Whether the sidecars of a folder holding one (unlocked) book are as they
+/// were when the book was last read. Folders with several books or a merged
+/// or split book don't use sidecars, so they always count as unchanged.
+fn sidecars_unchanged(
+    group: &DirGroup,
+    ids: &[TrackId],
+    by_path: &HashMap<&Path, &ExistingTrack>,
+    snapshot: &Snapshot,
+) -> bool {
+    let books: HashSet<BookId> = group
+        .files
+        .iter()
+        .filter_map(|f| by_path.get(f.path.as_path()).map(|t| t.book_id))
+        .collect();
+    if ids.is_empty() || books.len() != 1 {
+        return true;
+    }
+    let Some(book) = books.iter().next().and_then(|b| snapshot.books.get(b)) else {
+        return true;
+    };
+    if book.grouping_locked {
+        return true;
+    }
+    book.sidecar_stamp.as_deref() == Some(sidecar_stamp(&group.dir).as_str())
 }
 
 /// Probe result and (when requested) partial hash of one file.
@@ -695,6 +722,7 @@ fn build_book(
         },
         tracks,
         chapters,
+        sidecar_stamp: None,
     }
 }
 

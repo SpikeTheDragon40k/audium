@@ -47,6 +47,7 @@ fn book(target: BookTarget, title: &str, authors: &[&str], tracks: Vec<TrackWrit
         cover_path: None,
         confidence: 90,
         review_reasons: vec![],
+        sidecar_stamp: None,
         tracks,
         chapters: vec![
             ChapterWrite {

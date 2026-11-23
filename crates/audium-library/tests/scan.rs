@@ -341,6 +341,38 @@ fn unchanged_rescan_reads_nothing_and_keeps_ids() {
 }
 
 #[test]
+fn an_edited_sidecar_is_read_on_rescan() {
+    let mut env = Env::new(&["folder-book", "multi-disc"]);
+    env.scan();
+    let book = env.book("The Folder Book").id;
+    let dir = read::tracks(env.db.conn(), book).expect("tracks")[0]
+        .path
+        .parent()
+        .expect("dir")
+        .to_owned();
+    fs::write(dir.join("desc.txt"), "A new description.").expect("desc");
+    let s = env.scan();
+    assert_eq!(
+        s.folders_unchanged,
+        s.folders - 1,
+        "only that folder is re-read"
+    );
+    let description = |env: &Env| {
+        read::book(env.db.conn(), book)
+            .expect("detail")
+            .expect("exists")
+            .description
+    };
+    assert_eq!(description(&env).as_deref(), Some("A new description."));
+    assert_eq!(env.scan().files_read, 0, "unchanged again");
+
+    fs::remove_file(dir.join("desc.txt")).expect("remove");
+    env.scan();
+    assert_ne!(description(&env).as_deref(), Some("A new description."));
+    assert_eq!(env.book("The Folder Book").id, book);
+}
+
+#[test]
 fn moved_and_renamed_book_keeps_identity_and_progress() {
     let mut env = Env::new(&["folder-book"]);
     env.scan();
@@ -565,6 +597,7 @@ fn forced_rescan_regroups_existing_books_and_keeps_progress() {
                     title: None,
                 }],
                 chapters: vec![],
+                sidecar_stamp: None,
             }
         })
         .collect();
