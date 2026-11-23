@@ -249,7 +249,11 @@ fn own_name_guess(group: &DirGroup, i: usize, shares_folder: bool) -> PathBuf {
 
 /// For a book that is part of a folder: the folder joined with the album,
 /// or the common filename prefix.
-fn book_name_guess(group: &DirGroup, infos: &[Option<FileInfo>], files: &[usize]) -> PathBuf {
+pub(crate) fn book_name_guess(
+    group: &DirGroup,
+    infos: &[Option<FileInfo>],
+    files: &[usize],
+) -> PathBuf {
     let album = files
         .iter()
         .find_map(|&i| infos[i].as_ref().and_then(|f| f.tags.album.clone()));

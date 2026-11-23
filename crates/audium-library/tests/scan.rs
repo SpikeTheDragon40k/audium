@@ -690,6 +690,12 @@ fn merged_books_stay_merged_across_rescans() {
     env.scan();
     let books = env.books();
     assert_eq!(books.len(), 2, "{:?}", env.titles());
+    let third = env.book("Third Story");
+    assert_eq!(
+        third.authors,
+        ["Dee Novelist"],
+        "named by its file, not the folder"
+    );
     let merged = books
         .iter()
         .find(|b| b.id == first)

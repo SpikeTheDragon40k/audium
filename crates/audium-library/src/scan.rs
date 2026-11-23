@@ -35,7 +35,7 @@ use audium_storage::{Database, StorageError};
 use crate::confidence::assess;
 use crate::discover::FoundFile;
 use crate::discover::{DirGroup, DiscoverError, discover};
-use crate::grouping::{Candidate, group_folder, locked_candidate};
+use crate::grouping::{Candidate, book_name_guess, group_folder, locked_candidate};
 use crate::hash::partial_hash;
 
 #[derive(Debug, Clone)]
@@ -244,7 +244,15 @@ pub fn scan_library(
         }
         let infos: Vec<Option<FileInfo>> = free_reads.iter().map(|(i, _)| i.clone()).collect();
         let unreadable = infos.iter().any(Option::is_none);
-        let candidates = group_folder(&free, &infos);
+        let mut candidates = group_folder(&free, &infos);
+        if has_locked {
+            // The folder also holds a merged or split book, so its name
+            // describes that book, not the new files: name them by their
+            // own album or filenames.
+            for c in &mut candidates {
+                c.folder_guess = book_name_guess(&free, &infos, &c.files);
+            }
+        }
         // Sidecars describe a folder's only book.
         let (sidecars, stamp) = if candidates.len() == 1 && !has_locked {
             (read_sidecars(&group.dir), Some(sidecar_stamp(&group.dir)))
