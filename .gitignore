@@ -2,6 +2,7 @@
 /build/
 /build-*/
 /tests/fixtures/generated/
+/tests/fixtures/fixtures-*/
 *.swp
 .idea/
 .vscode/

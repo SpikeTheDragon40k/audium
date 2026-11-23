@@ -14,12 +14,32 @@ use audium_storage::write::{self, Library};
 use audium_storage::{Database, now_ms};
 
 fn fixtures() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/generated");
-    assert!(
-        dir.is_dir(),
-        "fixtures missing: run scripts/make-fixtures.sh first"
-    );
-    dir
+    static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let dir = root.join("tests/fixtures/generated");
+        if !dir.is_dir() {
+            // Generate into a private directory, then rename, so an interrupted
+            // or concurrent run never leaves a half-written fixture set behind.
+            let tmp = root.join(format!("tests/fixtures/fixtures-{}", std::process::id()));
+            let status = std::process::Command::new(root.join("scripts/make-fixtures.sh"))
+                .arg(&tmp)
+                .stdout(std::process::Stdio::null())
+                .status()
+                .expect("run scripts/make-fixtures.sh (needs bash and ffmpeg)");
+            assert!(status.success(), "scripts/make-fixtures.sh failed");
+            if std::fs::rename(&tmp, &dir).is_err() {
+                // Another test binary got there first.
+                let _ = std::fs::remove_dir_all(&tmp);
+            }
+        }
+        assert!(
+            dir.is_dir(),
+            "fixtures missing: run scripts/make-fixtures.sh"
+        );
+        dir
+    })
+    .clone()
 }
 
 fn copy_dir(from: &Path, to: &Path) {
