@@ -236,8 +236,8 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(search, "accepted"));
         QTRY_VERIFY(visibleView(window, QStringLiteral("gridView"))->property("count").toInt() >= 8);
 
-        // Authors and series: cards open the group's books.
-        for (int tab : {2, 3}) {
+        // Authors, narrators and series: cards open the group's books.
+        for (int tab : {2, 3, 4}) {
             QVERIFY(libraryPage->setProperty("tab", tab));
             QQuickItem *groups = nullptr;
             QTRY_VERIFY((groups = visibleView(window, QStringLiteral("groupView"))));
@@ -254,7 +254,7 @@ private Q_SLOTS:
             click(window, closeButton);
             QTRY_COMPARE(pageStack->property("depth").toInt(), 1);
         }
-        QVERIFY(libraryPage->setProperty("tab", 4)); // collections (empty)
+        QVERIFY(libraryPage->setProperty("tab", 5)); // collections (empty)
         QTest::qWait(200);
         QVERIFY(libraryPage->setProperty("tab", 0));
 

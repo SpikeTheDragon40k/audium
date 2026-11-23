@@ -17,24 +17,25 @@ pub fn clear_listening(conn: &Connection) -> Result<usize> {
 }
 
 /// Listening time per local day. A session running past local midnight is
-/// split between the two days (sessions longer than a day are not split
-/// further).
+/// split between the days it covers, as if listened to from its start
+/// without pauses (a session only records its total listening time).
 pub fn listening_per_day(conn: &Connection) -> Result<Vec<(Date, i64)>> {
-    let mut stmt = conn.prepare(
-        "WITH s AS (
-            SELECT started_at, listened_ms,
-                   date(started_at / 1000, 'unixepoch', 'localtime') AS d1,
-                   date(ended_at / 1000, 'unixepoch', 'localtime') AS d2,
-                   CAST(strftime('%s', date(ended_at / 1000, 'unixepoch', 'localtime'), 'utc') AS INTEGER) * 1000 AS midnight
-            FROM sessions WHERE listened_ms > 0),
-         parts AS (
-            SELECT d1 AS day,
-                   CASE WHEN d1 = d2 THEN listened_ms ELSE max(0, min(listened_ms, midnight - started_at)) END AS ms
-            FROM s
+    // `cursor` walks from the session start one local midnight at a time;
+    // each step gives the day it starts in the part up to the next midnight.
+    const NEXT_MIDNIGHT: &str = "CAST(strftime('%s', date(cursor / 1000, 'unixepoch', 'localtime', '+1 day'), 'utc') AS INTEGER) * 1000";
+    let part = format!(
+        "CASE WHEN {NEXT_MIDNIGHT} >= ended_at THEN remaining
+              ELSE max(0, min(remaining, {NEXT_MIDNIGHT} - cursor)) END"
+    );
+    let mut stmt = conn.prepare(&format!(
+        "WITH RECURSIVE walk(day, cursor, ended_at, remaining, ms) AS (
+            SELECT NULL, started_at, ended_at, listened_ms, 0 FROM sessions WHERE listened_ms > 0
             UNION ALL
-            SELECT d2, listened_ms - max(0, min(listened_ms, midnight - started_at)) FROM s WHERE d1 <> d2)
-         SELECT day, sum(ms) FROM parts GROUP BY day",
-    )?;
+            SELECT date(cursor / 1000, 'unixepoch', 'localtime'), {NEXT_MIDNIGHT}, ended_at,
+                   remaining - ({part}), {part}
+            FROM walk WHERE remaining > 0)
+         SELECT day, sum(ms) FROM walk WHERE day IS NOT NULL AND ms > 0 GROUP BY day"
+    ))?;
     let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
     let mut out = Vec::new();
     for row in rows {

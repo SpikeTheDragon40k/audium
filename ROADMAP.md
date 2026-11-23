@@ -556,3 +556,27 @@ Not verified:
 - (The AUR PKGBUILD was checked: in a clean Arch container it downloads the 1.1.0 source, builds, installs as `audium-audiobooks` conflicting with `audium`, and starts.)
 
 Released as 1.1.1 on 2026-10-31 (version in CMake, Cargo, both PKGBUILDs, the spec and AppStream). `scripts/release.sh` stopped at the Flatpak file: `flatpak-builder --sandbox` refuses the local repository as a source. Fixed in the script after the tag (release tooling only; the tag's source is unchanged); the remaining steps (Flatpak file, AUR files, checksums, publishing) were then run by hand exactly as the script does. The `.flatpak` file was installed into a throwaway Flatpak installation and started; the published tarball matches the AUR checksum. Next: the maintainer pushes `dist/1.1.1/aur/` to the AUR with their account.
+
+### After 1.1.1: review fixes (2026-11-23)
+From a review of the repository (AUR submissions are closed for now, so `dist/1.1.1/aur/` waits).
+
+Fixed:
+- **`cargo test` failed on a fresh clone** (eight scanner and metadata tests: "fixtures missing"). The tests now run `scripts/make-fixtures.sh` themselves when the fixtures are missing, into a private directory that is then renamed, so an interrupted run leaves nothing half-written.
+- **Splitting a book left its progress behind** (M4 limitation). Progress and the book's speed now follow the track they point at; if the saved position is on a split-off track, the new book resumes there and the original starts from the beginning.
+- **Stale book-wide positions after a split or merge** (since M4): bookmarks and progress kept positions computed for the old track order, and the book's duration wasn't updated until the next re-read. Both are recomputed in the same transaction.
+- **An edited `desc.txt`, `metadata.json`, `reader.txt` or cover file was ignored by rescans** (M2 limitation). Schema v3 adds `books.sidecar_stamp` (names, sizes and modification times of the folder's sidecar files, no contents); a folder whose stamp changed is re-read. After upgrading, the first rescan reads every single-book folder once, because existing books have no stamp yet.
+- **A new untagged file beside a merged or split book took the folder's name as its title** (M4 limitation). It is now named by its own album tag or filename.
+- **Sessions longer than a day were split only at the first midnight** (M5 limitation). They are now split at every local midnight.
+- **The week always started on Monday** (M5 limitation). Statistics and the chart's labels now use the locale's first day of the week.
+- **No "books finished this week" figure** (M5 limitation): shown in the tooltip of the Books finished tile.
+- **Narrators had no tab** (M4 limitation): a Narrators tab between Authors and Series, with an explanation when no narrator is known.
+
+Tests added: split moves progress, speed and bookmark positions (and leaves progress on a kept track); a sidecar edit and removal are picked up by a rescan and a third scan reads nothing; the file beside a merged book is named by its file; a session over three midnights; week starts on Sunday and Saturday; the UI tests open the Narrators tab and a narrator's page.
+
+Not done, on purpose:
+- **Cover thumbnails.** Covers already decode at their displayed size (`sourceSize`); thumbnails would need an image-decoding crate for little gain. The bookshelf's remaining cost is one model and view per shelf (ARCHITECTURE §13a), not images.
+- **Translatable status text from Rust.** There is no translation catalogue yet (no `po/`, no `Messages.sh`), so this has no effect until translations are set up. When they are, return message codes and arguments from the bridge and format them with `i18n` in QML.
+- **CI on GitHub Actions.** Builds stay local by decision (ARCHITECTURE §3).
+- **`cargo deny`/`cargo audit` in `scripts/check.sh`, signed packages:** need tools and a signing key on the maintainer's machine.
+
+Still not verified by a person: everything listed under "Not verified" above (real desktop, audio, packages in VMs).

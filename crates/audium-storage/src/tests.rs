@@ -1195,6 +1195,40 @@ mod statistics {
     }
 
     #[test]
+    fn sessions_over_several_days_are_split_at_every_midnight() {
+        let (_dir, mut db) = db();
+        let (long, _) = library(&mut db);
+        let m29 = local_midnight(&db, "2026-10-29");
+        let m31 = local_midnight(&db, "2026-10-31");
+        // From one hour before the 29th to two hours into the 31st.
+        session(&db, long, m29 - 3_600_000, m31 + 7_200_000);
+        let mut days = stats::listening_per_day(db.conn()).expect("days");
+        days.sort();
+        let day_len = |a: &str, b: &str| local_midnight(&db, b) - local_midnight(&db, a);
+        assert_eq!(
+            days,
+            vec![
+                (
+                    audium_core::stats::Date::parse("2026-10-28").expect("d"),
+                    3_600_000
+                ),
+                (
+                    audium_core::stats::Date::parse("2026-10-29").expect("d"),
+                    day_len("2026-10-29", "2026-10-30")
+                ),
+                (
+                    audium_core::stats::Date::parse("2026-10-30").expect("d"),
+                    day_len("2026-10-30", "2026-10-31")
+                ),
+                (
+                    audium_core::stats::Date::parse("2026-10-31").expect("d"),
+                    7_200_000
+                ),
+            ]
+        );
+    }
+
+    #[test]
     fn sessions_are_split_at_local_midnight() {
         let (_dir, mut db) = db();
         let (long, short) = library(&mut db);

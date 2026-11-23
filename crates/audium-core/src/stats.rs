@@ -59,7 +59,14 @@ impl Date {
 
     /// The Monday starting this date's week.
     pub fn week_start(self) -> Date {
-        self.add_days(-i64::from(self.weekday()))
+        self.week_start_on(0)
+    }
+
+    /// The start of this date's week, for weeks starting on `first`
+    /// (0 = Monday ... 6 = Sunday; larger values wrap).
+    pub fn week_start_on(self, first: u32) -> Date {
+        let back = (self.weekday() + 7 - first % 7) % 7;
+        self.add_days(-i64::from(back))
     }
 
     pub fn month_start(self) -> Date {
@@ -76,7 +83,7 @@ impl std::fmt::Display for Date {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Summary {
     pub today_ms: i64,
-    /// Since Monday.
+    /// Since the first day of the week.
     pub week_ms: i64,
     /// Since the 1st of the month.
     pub month_ms: i64,
@@ -91,6 +98,16 @@ pub struct Summary {
 
 /// Summarizes per-day listening (`(day, ms)`, any order, days may repeat).
 pub fn summarize(per_day: &[(Date, i64)], today: Date, days: usize) -> Summary {
+    summarize_weeks_from(per_day, today, days, 0)
+}
+
+/// [`summarize`] with weeks starting on `first_weekday` (0 = Monday ... 6 = Sunday).
+pub fn summarize_weeks_from(
+    per_day: &[(Date, i64)],
+    today: Date,
+    days: usize,
+    first_weekday: u32,
+) -> Summary {
     use std::collections::BTreeMap;
     let mut by_day: BTreeMap<Date, i64> = BTreeMap::new();
     for &(d, ms) in per_day {
@@ -133,7 +150,7 @@ pub fn summarize(per_day: &[(Date, i64)], today: Date, days: usize) -> Summary {
 
     Summary {
         today_ms: by_day.get(&today).copied().unwrap_or(0),
-        week_ms: sum_since(today.week_start()),
+        week_ms: sum_since(today.week_start_on(first_weekday)),
         month_ms: sum_since(today.month_start()),
         total_ms: by_day.values().sum(),
         streak_days: streak,
@@ -170,6 +187,11 @@ mod tests {
             d("2026-10-26"),
             "Sunday ends the week"
         );
+        // Weeks starting on Sunday (6) or Saturday (5).
+        assert_eq!(d("2026-10-30").week_start_on(6), d("2026-10-25"));
+        assert_eq!(d("2026-11-01").week_start_on(6), d("2026-11-01"));
+        assert_eq!(d("2026-10-30").week_start_on(5), d("2026-10-24"));
+        assert_eq!(d("2026-10-31").week_start_on(5), d("2026-10-31"));
         assert_eq!(d("2026-10-30").month_start(), d("2026-10-01"));
         assert_eq!(d("2026-10-30").to_string(), "2026-10-30");
         for bad in [
@@ -248,5 +270,13 @@ mod tests {
         );
         assert_eq!(s.streak_days, 3);
         assert_eq!(summarize(&[], today, 0), Summary::default());
+    }
+
+    #[test]
+    fn week_total_follows_the_first_day_of_the_week() {
+        let today = d("2026-10-30"); // Friday
+        let per_day = [(d("2026-10-25"), 1_000), (d("2026-10-26"), 2_000)]; // Sun, Mon
+        assert_eq!(summarize_weeks_from(&per_day, today, 0, 0).week_ms, 2_000);
+        assert_eq!(summarize_weeks_from(&per_day, today, 0, 6).week_ms, 3_000);
     }
 }

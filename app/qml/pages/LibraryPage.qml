@@ -19,10 +19,10 @@ Kirigami.Page {
     signal settingsRequested()
     signal statsRequested()
     signal nowPlayingRequested()
-    /// kind: 1 author, 3 series, 4 collection (BookListModel scope kinds)
+    /// kind: 1 author, 2 narrator, 3 series, 4 collection (BookListModel scope kinds)
     signal groupRequested(int kind, var groupId, string name)
 
-    enum Tab { Home, Books, Authors, Series, Collections }
+    enum Tab { Home, Books, Authors, Narrators, Series, Collections }
     property int tab: LibraryPage.Tab.Home
     /// Books tab: 0 grid, 1 list, 2 bookshelf
     property int booksView: 0
@@ -123,7 +123,7 @@ Kirigami.Page {
             id: tabBar
             // Icons only when the names don't fit (a narrow window, or the
             // library beside other columns).
-            readonly property bool compact: page.width < Kirigami.Units.gridUnit * 30
+            readonly property bool compact: page.width < Kirigami.Units.gridUnit * 36
             Layout.fillWidth: true
             visible: books.count > 0
             currentIndex: page.tab
@@ -132,6 +132,7 @@ Kirigami.Page {
                     {icon: "go-home", text: i18nc("@title:tab", "Home")},
                     {icon: "audiobook", text: i18nc("@title:tab %1 is a number", "Books (%1)", books.count)},
                     {icon: "view-media-artist", text: i18nc("@title:tab", "Authors")},
+                    {icon: "audio-headset", text: i18nc("@title:tab", "Narrators")},
                     {icon: "view-media-playlist", text: i18nc("@title:tab", "Series")},
                     {icon: "bookmarks", text: i18nc("@title:tab", "Collections")}
                 ]
@@ -200,7 +201,7 @@ Kirigami.Page {
         id: view
         anchors.fill: parent
         visible: books.count > 0
-        sourceComponent: [homeComponent, booksComponent, authorsComponent, seriesComponent, collectionsComponent][page.tab]
+        sourceComponent: [homeComponent, booksComponent, authorsComponent, narratorsComponent, seriesComponent, collectionsComponent][page.tab]
     }
 
     Component {
@@ -360,6 +361,33 @@ Kirigami.Page {
                 kind: 0
             }
             onGroupRequested: (id, name) => page.groupRequested(1, id, name)
+        }
+    }
+
+    Component {
+        id: narratorsComponent
+        ColumnLayout {
+            spacing: 0
+            Kirigami.PlaceholderMessage {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: narrators.count === 0
+                icon.name: "audio-headset"
+                text: i18n("No narrators known")
+                explanation: i18n("Narrators come from the books' tags, a reader.txt file, or your own edits.")
+            }
+            GroupGrid {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: narrators.count > 0
+                model: GroupListModel {
+                    id: narrators
+                    databasePath: page.library.databasePath
+                    revision: page.revision
+                    kind: 1
+                }
+                onGroupRequested: (id, name) => page.groupRequested(2, id, name)
+            }
         }
     }
 

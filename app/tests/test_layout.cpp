@@ -335,7 +335,7 @@ private Q_SLOTS:
         QTRY_COMPARE(m_window->size(), size);
 
         const QStringList tabs = {QStringLiteral("home"), QStringLiteral("books"), QStringLiteral("authors"),
-                                  QStringLiteral("series"), QStringLiteral("collections")};
+                                  QStringLiteral("narrators"), QStringLiteral("series"), QStringLiteral("collections")};
         for (int tab = 0; tab < tabs.size(); ++tab) {
             QVERIFY(m_libraryPage->setProperty("tab", tab));
             look(tabs[tab]);
@@ -373,7 +373,7 @@ private Q_SLOTS:
         if (background.isValid()) {
             // What the window shows: the library page's background, in the
             // empty part of the Collections tab (there are none).
-            QVERIFY(m_libraryPage->setProperty("tab", 4));
+            QVERIFY(m_libraryPage->setProperty("tab", 5));
             settle();
             const QImage shot = m_window->grabWindow();
             const QPoint empty(m_window->width() / 4, m_window->height() * 3 / 5);

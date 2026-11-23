@@ -120,7 +120,7 @@ Audium rescans your folders each time it starts, so new books appear by themselv
 
 ## Features
 
-- **Library:** grid, list or bookshelf; Home with Continue Listening, Recently Added and Finished; authors, series and your own collections; search by title, author, narrator or series.
+- **Library:** grid, list or bookshelf; Home with Continue Listening, Recently Added and Finished; authors, narrators, series and your own collections; search by title, author, narrator or series.
 - **Formats:** m4b, m4a, mp3, aac, ogg, oga, opus, flac, wav, wma, mka. Books made of many files play as one, without gaps.
 - **Metadata:** read from `metadata.json`, `desc.txt`, `reader.txt` and `cover.*`/`folder.*` next to the files, then from the files' tags, then from folder and file names. Your edits are stored in Audium, never written into the files.
 - **Listening:** resume anywhere, speed from 0.5× to 3× without chipmunk voices (remembered per book), configurable skip back and forward, chapters, and bookmarks with notes.

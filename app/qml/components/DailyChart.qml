@@ -5,13 +5,15 @@ import "TimeFormat.js" as TimeFormat
 
 // Listening time per day as thin bars on a baseline (one series, so no
 // legend: the page heading names it). Each bar has a tooltip with the exact
-// value; Mondays are labelled under the axis.
+// value; the first day of each week is labelled under the axis.
 Item {
     id: chart
 
     /// [{date, year, month, day, weekday, ms}], oldest first
     required property var days
     required property real maxMs
+    /// 0 = Monday ... 6 = Sunday
+    property int firstDayOfWeek: 0
 
     readonly property int gap: 2
     readonly property real plotHeight: height - axisLabels.height - Kirigami.Units.smallSpacing
@@ -103,7 +105,7 @@ Item {
             delegate: QQC2.Label {
                 required property var modelData
                 required property int index
-                visible: modelData.weekday === 0
+                visible: modelData.weekday === chart.firstDayOfWeek
                 x: Math.min(chart.width - width, index * (chart.barWidth + chart.gap))
                 text: new Date(modelData.year, modelData.month - 1, modelData.day).toLocaleDateString(Qt.locale(), "d MMM")
                 font: Kirigami.Theme.smallFont

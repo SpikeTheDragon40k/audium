@@ -26,6 +26,8 @@ Kirigami.ScrollablePage {
         databasePath: page.library.databasePath
         revision: page.revision
         days: 30
+        // Qt counts days from Sunday (0); the model from Monday.
+        firstDayOfWeek: (Qt.locale().firstDayOfWeek + 6) % 7
     }
 
     component Tile: Kirigami.AbstractCard {
@@ -83,6 +85,8 @@ Kirigami.ScrollablePage {
             Tile {
                 label: i18nc("@label stat", "Books finished")
                 value: i18nc("@info finished books: total (this month)", "%1 (%2 this month)", stats.finishedTotal, stats.finishedMonth)
+                QQC2.ToolTip.text: i18ncp("@info:tooltip", "%1 book finished this week", "%1 books finished this week", stats.finishedWeek)
+                QQC2.ToolTip.visible: hovered
             }
         }
 
@@ -97,6 +101,7 @@ Kirigami.ScrollablePage {
             visible: stats.totalMs > 0
             days: stats.daily
             maxMs: stats.maxDailyMs
+            firstDayOfWeek: stats.firstDayOfWeek
         }
 
         Kirigami.ListSectionHeader {

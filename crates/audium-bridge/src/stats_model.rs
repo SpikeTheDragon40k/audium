@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::pin::Pin;
 
-use audium_core::stats::{Date, summarize};
+use audium_core::stats::{Date, summarize_weeks_from};
 use audium_storage::{ReadOnly, stats};
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::{QList, QString, QVariant};
@@ -26,6 +26,8 @@ pub mod qobject {
         #[qproperty(i32, revision)]
         /// Number of days in `daily` (the chart).
         #[qproperty(i32, days)]
+        /// First day of the week, 0 = Monday ... 6 = Sunday (from the locale).
+        #[qproperty(i32, first_day_of_week, cxx_name = "firstDayOfWeek")]
         #[qproperty(i64, today_ms, cxx_name = "todayMs", READ, NOTIFY)]
         #[qproperty(i64, week_ms, cxx_name = "weekMs", READ, NOTIFY)]
         #[qproperty(i64, month_ms, cxx_name = "monthMs", READ, NOTIFY)]
@@ -34,6 +36,7 @@ pub mod qobject {
         #[qproperty(i32, best_streak_days, cxx_name = "bestStreakDays", READ, NOTIFY)]
         #[qproperty(i32, finished_total, cxx_name = "finishedTotal", READ, NOTIFY)]
         #[qproperty(i32, finished_month, cxx_name = "finishedMonth", READ, NOTIFY)]
+        #[qproperty(i32, finished_week, cxx_name = "finishedWeek", READ, NOTIFY)]
         /// Oldest first: {date "YYYY-MM-DD", year, month, day, weekday (0 Mon), ms}.
         #[qproperty(QList_QVariant, daily, READ, NOTIFY)]
         #[qproperty(i64, max_daily_ms, cxx_name = "maxDailyMs", READ, NOTIFY)]
@@ -54,6 +57,7 @@ pub struct StatsModelRust {
     database_path: QString,
     revision: i32,
     days: i32,
+    first_day_of_week: i32,
     today_ms: i64,
     week_ms: i64,
     month_ms: i64,
@@ -62,6 +66,7 @@ pub struct StatsModelRust {
     best_streak_days: i32,
     finished_total: i32,
     finished_month: i32,
+    finished_week: i32,
     daily: QList<QVariant>,
     max_daily_ms: i64,
     books: QList<QVariant>,
@@ -73,6 +78,7 @@ impl Default for StatsModelRust {
             database_path: QString::default(),
             revision: 0,
             days: 30,
+            first_day_of_week: 0,
             today_ms: 0,
             week_ms: 0,
             month_ms: 0,
@@ -81,6 +87,7 @@ impl Default for StatsModelRust {
             best_streak_days: 0,
             finished_total: 0,
             finished_month: 0,
+            finished_week: 0,
             daily: QList::default(),
             max_daily_ms: 0,
             books: QList::default(),
@@ -96,6 +103,9 @@ impl cxx_qt::Initialize for qobject::StatsModel {
             .release();
         this.as_mut().on_revision_changed(|m| m.reload()).release();
         this.as_mut().on_days_changed(|m| m.reload()).release();
+        this.as_mut()
+            .on_first_day_of_week_changed(|m| m.reload())
+            .release();
     }
 }
 
@@ -138,7 +148,8 @@ impl qobject::StatsModel {
             }
         };
         let days = usize::try_from(self.days.clamp(1, 366)).unwrap_or(30);
-        let s = summarize(&loaded.per_day, loaded.today, days);
+        let first_weekday = u32::try_from(self.first_day_of_week.rem_euclid(7)).unwrap_or(0);
+        let s = summarize_weeks_from(&loaded.per_day, loaded.today, days, first_weekday);
         let daily: QList<QVariant> = s
             .daily
             .iter()
@@ -172,12 +183,15 @@ impl qobject::StatsModel {
             })
             .collect::<Vec<_>>()
             .into();
-        let month_start = loaded.today.month_start();
-        let finished_month = loaded
-            .finished
-            .iter()
-            .filter(|d| **d >= month_start && **d <= loaded.today)
-            .count();
+        let finished_since = |start: Date| {
+            loaded
+                .finished
+                .iter()
+                .filter(|d| **d >= start && **d <= loaded.today)
+                .count()
+        };
+        let finished_month = finished_since(loaded.today.month_start());
+        let finished_week = finished_since(loaded.today.week_start_on(first_weekday));
 
         set_ro!(self, today_ms, today_ms_changed, s.today_ms);
         set_ro!(self, week_ms, week_ms_changed, s.week_ms);
@@ -206,6 +220,12 @@ impl qobject::StatsModel {
             finished_month,
             finished_month_changed,
             to_i32(finished_month)
+        );
+        set_ro!(
+            self,
+            finished_week,
+            finished_week_changed,
+            to_i32(finished_week)
         );
         set_ro!(self, daily, daily_changed, daily);
         set_ro!(self, max_daily_ms, max_daily_ms_changed, max_daily);
