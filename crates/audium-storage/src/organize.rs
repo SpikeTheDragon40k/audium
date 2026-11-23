@@ -277,6 +277,7 @@ pub fn merge_books(db: &mut Database, target: BookId, others: &[BookId], now: i6
         tx.execute("DELETE FROM books WHERE id = ?1", [other.0])?;
     }
     renumber_tracks(&tx, target)?;
+    rederive_positions(&tx, target)?;
     tx.execute(
         "UPDATE books SET grouping_locked = 1, updated_at = ?2 WHERE id = ?1",
         params![target.0, now],
@@ -289,7 +290,9 @@ pub fn merge_books(db: &mut Database, target: BookId, others: &[BookId], now: i6
 
 /// Moves `tracks` of `book` into a new book (a copy of the original's
 /// metadata until the next re-read). Bookmarks on the moved tracks move
-/// with them. Both books are locked. Returns the new book's id.
+/// with them, and so do the saved position and speed when the position is
+/// on a moved track. Book-wide positions are recomputed for both books.
+/// Both books are locked. Returns the new book's id.
 pub fn split_book(
     db: &mut Database,
     book: BookId,
@@ -349,8 +352,23 @@ pub fn split_book(
             params![id, new_book],
         )?;
     }
+    // Progress follows its track: the part being listened to keeps the place.
+    let moved_progress = tx.execute(
+        "UPDATE progress SET book_id = ?2
+         WHERE book_id = ?1 AND track_id IN (SELECT id FROM tracks WHERE book_id = ?2)",
+        params![book.0, new_book],
+    )?;
+    if moved_progress > 0 {
+        tx.execute(
+            "INSERT INTO book_settings (book_id, speed)
+             SELECT ?2, speed FROM book_settings WHERE book_id = ?1",
+            params![book.0, new_book],
+        )?;
+    }
     renumber_tracks(&tx, book)?;
     renumber_tracks(&tx, BookId(new_book))?;
+    rederive_positions(&tx, book)?;
+    rederive_positions(&tx, BookId(new_book))?;
     tx.execute(
         "UPDATE books SET grouping_locked = 1, updated_at = ?2 WHERE id = ?1",
         params![book.0, now],
@@ -359,6 +377,30 @@ pub fn split_book(
     fts::refresh(&tx, BookId(new_book))?;
     tx.commit()?;
     Ok(BookId(new_book))
+}
+
+/// Recomputes the derived book-wide positions of a book's progress and
+/// bookmarks from their track and offset (after its tracks changed).
+fn rederive_positions(conn: &Connection, book: BookId) -> Result<()> {
+    conn.execute(
+        "UPDATE books SET duration_ms =
+            (SELECT COALESCE(SUM(MAX(duration_ms, 0)), 0) FROM tracks WHERE book_id = ?1)
+         WHERE id = ?1",
+        [book.0],
+    )?;
+    const START: &str = "(SELECT COALESCE(SUM(o.duration_ms), 0) FROM tracks o, tracks t
+                          WHERE t.id = {tbl}.track_id AND o.book_id = t.book_id AND o.position < t.position)";
+    for tbl in ["progress", "bookmarks"] {
+        conn.execute(
+            &format!(
+                "UPDATE {tbl} SET book_position_ms = offset_ms + {}
+                 WHERE book_id = ?1 AND track_id IS NOT NULL",
+                START.replace("{tbl}", tbl)
+            ),
+            [book.0],
+        )?;
+    }
+    Ok(())
 }
 
 /// Positions 0..n in the current order.

@@ -1074,6 +1074,68 @@ mod organizing {
         assert!(lib.is_some());
         assert_eq!(dirs, [std::path::PathBuf::from("/books/s")]);
     }
+
+    #[test]
+    fn splitting_moves_progress_and_speed_with_their_track() {
+        let (_dir, mut db) = db();
+        let (a, _, _) = three_books(&mut db);
+        let t = read::tracks(db.conn(), a).expect("t");
+        let first_len = t[0].duration_ms;
+        crate::playback::save_progress(db.conn(), a, Some(t[1].id), 700, first_len + 700, 5)
+            .expect("progress");
+        db.conn()
+            .execute(
+                "INSERT INTO book_settings (book_id, speed) VALUES (?1, 1.5)",
+                [a.0],
+            )
+            .expect("speed");
+        organize::add_bookmark(db.conn(), a, Some(t[1].id), 300, first_len + 300, 1)
+            .expect("bookmark");
+        let new = organize::split_book(&mut db, a, &[t[1].id], &uid(9), 2).expect("split");
+        let p = crate::playback::progress(db.conn(), new)
+            .expect("q")
+            .expect("progress moved");
+        assert_eq!(
+            (p.offset_ms, p.book_position_ms),
+            (700, 700),
+            "now first track"
+        );
+        assert!(
+            crate::playback::progress(db.conn(), a)
+                .expect("q")
+                .is_none()
+        );
+        let speed: f64 = db
+            .conn()
+            .query_row(
+                "SELECT speed FROM book_settings WHERE book_id = ?1",
+                [new.0],
+                |r| r.get(0),
+            )
+            .expect("speed copied");
+        assert!((speed - 1.5).abs() < 1e-9);
+        let b = organize::bookmarks(db.conn(), new).expect("b");
+        assert_eq!(b[0].book_position_ms, 300);
+    }
+
+    #[test]
+    fn splitting_leaves_progress_on_a_kept_track() {
+        let (_dir, mut db) = db();
+        let (a, _, _) = three_books(&mut db);
+        let t = read::tracks(db.conn(), a).expect("t");
+        crate::playback::save_progress(db.conn(), a, Some(t[0].id), 10, 10, 5).expect("progress");
+        let new = organize::split_book(&mut db, a, &[t[1].id], &uid(9), 2).expect("split");
+        assert!(
+            crate::playback::progress(db.conn(), a)
+                .expect("q")
+                .is_some()
+        );
+        assert!(
+            crate::playback::progress(db.conn(), new)
+                .expect("q")
+                .is_none()
+        );
+    }
 }
 
 mod statistics {
