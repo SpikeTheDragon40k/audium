@@ -5,7 +5,7 @@
 # package name and the conflict.
 pkgname=audium-audiobooks
 _pkgname=audium
-pkgver=1.1.1
+pkgver=1.1.2
 pkgrel=1
 pkgdesc="Offline audiobook player for KDE Plasma"
 arch=('x86_64')

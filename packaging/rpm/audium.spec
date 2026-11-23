@@ -9,7 +9,7 @@
 %global debug_package %{nil}
 
 Name:           audium
-Version:        1.1.1
+Version:        1.1.2
 Release:        1%{?dist}
 Summary:        Offline audiobook player for KDE Plasma
 License:        GPL-3.0-only
@@ -95,6 +95,8 @@ strip --strip-unneeded %{buildroot}%{_bindir}/audium
 %{_datadir}/audium/
 
 %changelog
+* Mon Nov 23 2026 Adriano Inghingolo <68734231+SpikeTheDragon40k@users.noreply.github.com> - 1.1.2-1
+- Fixes: split keeps progress, sidecar edits picked up on rescan, statistics; Narrators tab.
 * Sat Oct 31 2026 Adriano Inghingolo <68734231+SpikeTheDragon40k@users.noreply.github.com> - 1.1.1-1
 - Packages for Fedora, openSUSE Tumbleweed, Debian and Ubuntu.
 * Sat Oct 31 2026 Adriano Inghingolo <68734231+SpikeTheDragon40k@users.noreply.github.com> - 1.1.0-1

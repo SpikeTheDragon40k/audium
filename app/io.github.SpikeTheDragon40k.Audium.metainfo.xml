@@ -75,6 +75,19 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="1.1.2" date="2026-11-23">
+      <description>
+        <p>Fixes and a Narrators tab.</p>
+        <ul>
+          <li>New: a Narrators tab in the library</li>
+          <li>New: books finished this week, and weeks that start on your locale's first day</li>
+          <li>Fixed: splitting a book left its listening position behind</li>
+          <li>Fixed: edits to desc.txt, metadata.json, reader.txt or a cover file were only seen by Re-read Everything</li>
+          <li>Fixed: listening sessions longer than a day were counted on only two days</li>
+          <li>Fixed: a new file next to a merged book was named after the folder</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.1" date="2026-10-31">
       <description>
         <p>Packages for Fedora, openSUSE Tumbleweed, Debian and Ubuntu, and a Flatpak file.</p>

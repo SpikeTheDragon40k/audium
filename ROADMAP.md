@@ -580,3 +580,6 @@ Not done, on purpose:
 - **`cargo deny`/`cargo audit` in `scripts/check.sh`, signed packages:** need tools and a signing key on the maintainer's machine.
 
 Still not verified by a person: everything listed under "Not verified" above (real desktop, audio, packages in VMs).
+
+### 1.1.2 (prepared 2026-11-23, not released)
+The review fixes above. Version set in CMake, Cargo, both PKGBUILDs, the spec, `.SRCINFO` and AppStream (with release notes). To release, the maintainer runs: `git tag -a v1.1.2 -m 'Audium 1.1.2'`, then `scripts/release.sh 1.1.2` (it asks before pushing the tag and publishing). Then, when the AUR accepts submissions again, push `dist/1.1.2/aur/` instead of the 1.1.1 files.
